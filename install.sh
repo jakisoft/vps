@@ -13,20 +13,19 @@ echo -e "${GREEN}    👹 JKSoft - SSHX TERMINAL CLIENT CONNECTOR 👹       ${N
 echo -e "${CYAN}==========================================================${NC}"
 echo ""
 
-if ! command -v sshx &> /dev/null; then
-    echo -e "${YELLOW}⏳ sshx belum terinstal. Mengunduh sshx client...${NC}"
-    curl -sSf https://sshx.io/get | sh
-    echo -e "${GREEN}✅ sshx berhasil diinstal!${NC}\n"
-else
-    echo -e "${GREEN}✅ Jaringan sshx siap digunakan.${NC}\n"
-fi
-
 echo -e "${YELLOW}👉 Masukkan URL sshx yang kamu dapatkan:${NC}"
 echo -ne "${CYAN}🔗 URL: ${NC}"
 read SSHX_URL
 
 if [ -z "$SSHX_URL" ]; then
     echo -e "${RED}❌ URL tidak boleh kosong! Proses dibatalkan.${NC}"
+    exit 1
+fi
+
+SSHX_ID=$(echo "$SSHX_URL" | grep -o 'https://sshx.io/s/[a-zA-Z0-9]*' | sed 's|https://sshx.io/s/||')
+
+if [ -z "$SSHX_ID" ]; then
+    echo -e "${RED}❌ Format URL sshx tidak valid!${NC}"
     exit 1
 fi
 
@@ -39,7 +38,7 @@ echo ""
 
 sleep 1
 
-sshx clone "$SSHX_URL"
+curl -sSf https://sshx.io/get | sh -s -- join "$SSHX_ID"
 
 echo ""
 echo -e "${YELLOW}👋 Sesi sshx telah diputus. Kembali ke terminal lokal.${NC}"
