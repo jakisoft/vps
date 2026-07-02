@@ -107,11 +107,11 @@ create_vps() {
     TCP_GUEST_PORT=22
 
     echo ""
-    echo -e "${YELLOW}⏳ Preparing Network Mirroring Protocols... Please wait.${NC}"
+    echo -e "${YELLOW}⏳ Injecting Network Core Drivers... Please wait.${NC}"
     echo ""
     
     $SUDO_CMD apt-get update -y > /dev/null 2>&1
-    $SUDO_CMD apt-get install -y qemu-system-x86 qemu-utils wget cloud-image-utils curl ncat > /dev/null 2>&1
+    $SUDO_CMD apt-get install -y qemu-system-x86 qemu-utils wget cloud-image-utils curl > /dev/null 2>&1
     
     $SUDO_CMD mkdir -p /home/daytona > /dev/null 2>&1
     
@@ -136,20 +136,16 @@ packages:
   - tmux
   - curl
   - wget
-  - ca-certificates
+  - dnsutils
 runcmd:
-  - sed -i 's|#\?\s*\(PermitUserEnvironment\).*|\1 yes|g' /etc/ssh/sshd_config
   - sed -i 's|#\?\s*\(PermitRootLogin\).*|\1 yes|g' /etc/ssh/sshd_config
   - sed -i 's|#\?\s*\(PasswordAuthentication\).*|\1 yes|g' /etc/ssh/sshd_config
   - echo "PermitRootLogin yes" >> /etc/ssh/sshd_config
   - echo "PasswordAuthentication yes" >> /etc/ssh/sshd_config
   - systemctl restart sshd
   - mkdir -p /home/${USER_NAME}/.ssh
-  - echo "export http_proxy=http://10.0.2.2:8118" >> /etc/environment
-  - echo "export https_proxy=http://10.0.2.2:8118" >> /etc/environment
-  - echo "export ftp_proxy=http://10.0.2.2:8118" >> /etc/environment
-  - echo "export no_proxy=localhost,127.0.0.1,10.0.2.2" >> /etc/environment
-  - echo "Acquire::http::Proxy \"http://10.0.2.2:8118\";" > /etc/apt/apt.conf.d/99proxy
+  - echo "nameserver 1.1.1.1" > /etc/resolv.conf
+  - echo "nameserver 8.8.8.8" >> /etc/resolv.conf
   - echo 'if [ -z "\$TMUX" ]; then tmux attach-session -t main_session || tmux new-session -s main_session; fi' >> /home/${USER_NAME}/.bashrc
   - echo 'if [ -z "\$TMUX" ]; then tmux attach-session -t main_session || tmux new-session -s main_session; fi' >> /root/.bashrc
   - chown -R ${USER_NAME}:${USER_NAME} /home/${USER_NAME}/
@@ -222,9 +218,6 @@ boot_qemu() {
     SSHX_URL=$(grep -o 'https://sshx.io/s/[a-zA-Z0-9]*' "$sshx_log" | head -n 1)
     rm -f "$sshx_log"
 
-    pkill -f "ncat -k -l 8118" > /dev/null 2>&1
-    ncat -k -l 8118 --proxy-type http --proxy 127.0.0.1:22 > /dev/null 2>&1 &
-
     clear
     echo -e "${GREEN}==========================================================${NC}"
     echo -e "🎉       DEUP GAMING & DXD LABS - VM NETWORK ACTIVE        "
@@ -251,7 +244,7 @@ boot_qemu() {
         -smp ${CPU_CORES:-4} \
         -drive file=seed.img,format=raw \
         -nographic \
-        -netdev user,id=net0,hostfwd=tcp::${TCP_HOST_PORT}-:${TCP_GUEST_PORT} \
+        -netdev user,id=net0,net=10.0.2.0/24,dns=1.1.1.1,hostfwd=tcp::${TCP_HOST_PORT}-:${TCP_GUEST_PORT} \
         -device e1000,netdev=net0
 }
 
@@ -271,7 +264,6 @@ clean_vps() {
     echo -e "${RED}⚠️ Purging system storage components and configurations...${NC}"
     $SUDO_CMD rm -rf user-data seed.img /home/daytona/ubuntu22.qcow2 .vps_env
     pkill sshx > /dev/null 2>&1
-    pkill ncat > /dev/null 2>&1
     pkill sh > /dev/null 2>&1
     sleep 1
     echo -e "${GREEN}✅ Workspace successfully wiped fresh!${NC}"
