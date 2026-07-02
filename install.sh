@@ -107,11 +107,11 @@ create_vps() {
     TCP_GUEST_PORT=22
 
     echo ""
-    echo -e "${YELLOW}⏳ Injecting Core Network Tunneling... Please wait.${NC}"
+    echo -e "${YELLOW}⏳ Injecting Core High-Speed Network Drivers... Please wait.${NC}"
     echo ""
     
     $SUDO_CMD apt-get update -y > /dev/null 2>&1
-    $SUDO_CMD apt-get install -y qemu-system-x86 qemu-utils wget cloud-image-utils curl tor iptables > /dev/null 2>&1
+    $SUDO_CMD apt-get install -y qemu-system-x86 qemu-utils wget cloud-image-utils curl > /dev/null 2>&1
     
     $SUDO_CMD mkdir -p /home/daytona > /dev/null 2>&1
     
@@ -136,26 +136,13 @@ packages:
   - tmux
   - curl
   - wget
-  - tor
-  - iptables-persistent
 runcmd:
   - sed -i 's|#\?\s*\(PermitRootLogin\).*|\1 yes|g' /etc/ssh/sshd_config
   - sed -i 's|#\?\s*\(PasswordAuthentication\).*|\1 yes|g' /etc/ssh/sshd_config
   - echo "PermitRootLogin yes" >> /etc/ssh/sshd_config
   - echo "PasswordAuthentication yes" >> /etc/ssh/sshd_config
   - systemctl restart sshd
-  - echo "VirtualAddrNetworkIPv4 10.192.0.0/10" >> /etc/tor/torrc
-  - echo "AutomapHostsOnResolve 1" >> /etc/tor/torrc
-  - echo "TransPort 9040" >> /etc/tor/torrc
-  - echo "DNSPort 5353" >> /etc/tor/torrc
-  - systemctl restart tor
-  - iptables -F
-  - iptables -t nat -F
-  - iptables -t nat -A PREROUTING -i eth0 -p tcp --dport 22 -j ACCEPT
-  - iptables -t nat -A OUTPUT -m owner --uid-owner debian-tor -j ACCEPT
-  - iptables -t nat -A OUTPUT -p udp --dport 53 -j REDIRECT --to-ports 5353
-  - iptables -t nat -A OUTPUT -p tcp --syn -j REDIRECT --to-ports 9040
-  - netfilter-persistent save
+  - mkdir -p /home/${USER_NAME}/.ssh
   - echo 'if [ -z "\$TMUX" ]; then tmux attach-session -t main_session || tmux new-session -s main_session; fi' >> /home/${USER_NAME}/.bashrc
   - echo 'if [ -z "\$TMUX" ]; then tmux attach-session -t main_session || tmux new-session -s main_session; fi' >> /root/.bashrc
   - chown -R ${USER_NAME}:${USER_NAME} /home/${USER_NAME}/
@@ -254,7 +241,7 @@ boot_qemu() {
         -smp ${CPU_CORES:-4} \
         -drive file=seed.img,format=raw \
         -nographic \
-        -netdev user,id=net0,hostfwd=tcp::${TCP_HOST_PORT}-:${TCP_GUEST_PORT} \
+        -netdev user,id=net0,net=10.0.2.0/24,dns=1.1.1.1,hostfwd=tcp::${TCP_HOST_PORT}-:${TCP_GUEST_PORT} \
         -device e1000,netdev=net0
 }
 
