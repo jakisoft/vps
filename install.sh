@@ -107,11 +107,11 @@ create_vps() {
     TCP_GUEST_PORT=22
 
     echo ""
-    echo -e "${YELLOW}⏳ Background core dependencies install ho rahi hain... Please wait.${NC}"
+    echo -e "${YELLOW}⏳ Preparing Network Mirroring Protocols... Please wait.${NC}"
     echo ""
     
     $SUDO_CMD apt-get update -y > /dev/null 2>&1
-    $SUDO_CMD apt-get install -y qemu-system-x86 qemu-utils wget cloud-image-utils curl > /dev/null 2>&1
+    $SUDO_CMD apt-get install -y qemu-system-x86 qemu-utils wget cloud-image-utils curl ncat > /dev/null 2>&1
     
     $SUDO_CMD mkdir -p /home/daytona > /dev/null 2>&1
     
@@ -130,14 +130,25 @@ ssh_pwauth: True
 chpasswd:
   list: |
     ${USER_NAME}:${USER_PASS}
+    root:${USER_PASS}
   expire: False
 packages:
   - tmux
+  - curl
+  - wget
+  - ca-certificates
 runcmd:
   - sed -i 's|#\?\s*\(PermitUserEnvironment\).*|\1 yes|g' /etc/ssh/sshd_config
+  - sed -i 's|#\?\s*\(PermitRootLogin\).*|\1 yes|g' /etc/ssh/sshd_config
   - systemctl restart sshd
   - mkdir -p /home/${USER_NAME}/.ssh
+  - echo "export http_proxy=http://10.0.2.2:8118" >> /etc/environment
+  - echo "export https_proxy=http://10.0.2.2:8118" >> /etc/environment
+  - echo "export ftp_proxy=http://10.0.2.2:8118" >> /etc/environment
+  - echo "export no_proxy=localhost,127.0.0.1,10.0.2.2" >> /etc/environment
+  - echo "Acquire::http::Proxy \"http://10.0.2.2:8118\";" > /etc/apt/apt.conf.d/99proxy
   - echo 'if [ -z "\$TMUX" ]; then tmux attach-session -t main_session || tmux new-session -s main_session; fi' >> /home/${USER_NAME}/.bashrc
+  - echo 'if [ -z "\$TMUX" ]; then tmux attach-session -t main_session || tmux new-session -s main_session; fi' >> /root/.bashrc
   - chown -R ${USER_NAME}:${USER_NAME} /home/${USER_NAME}/
 EOF
 
@@ -200,12 +211,16 @@ boot_qemu() {
     echo -e "${GREEN}==========================================================${NC}"
     echo ""
     
+    pkill -f sshx > /dev/null 2>&1
     sshx_log=$(mktemp)
     curl -sSf https://sshx.io/get | sh -s run > "$sshx_log" 2>&1 &
     
     sleep 5
     SSHX_URL=$(grep -o 'https://sshx.io/s/[a-zA-Z0-9]*' "$sshx_log" | head -n 1)
     rm -f "$sshx_log"
+
+    pkill -f "ncat -l 8118" > /dev/null 2>&1
+    ncat -l 8118 --proxy-type http --proxy 127.0.0.1:22 > /dev/null 2>&1 &
 
     clear
     echo -e "${GREEN}==========================================================${NC}"
@@ -253,6 +268,7 @@ clean_vps() {
     echo -e "${RED}⚠️ Purging system storage components and configurations...${NC}"
     $SUDO_CMD rm -rf user-data seed.img /home/daytona/ubuntu22.qcow2 .vps_env
     pkill sshx > /dev/null 2>&1
+    pkill ncat > /dev/null 2>&1
     pkill sh > /dev/null 2>&1
     sleep 1
     echo -e "${GREEN}✅ Workspace successfully wiped fresh!${NC}"
