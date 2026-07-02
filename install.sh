@@ -23,9 +23,10 @@ if [ -z "$SSHX_URL" ]; then
 fi
 
 SSHX_ID=$(echo "$SSHX_URL" | grep -o 'https://sshx.io/s/[a-zA-Z0-9]*' | sed 's|https://sshx.io/s/||')
+SSHX_TOKEN=$(echo "$SSHX_URL" | grep -o '#[a-zA-Z0-9]*' | sed 's|#||')
 
-if [ -z "$SSHX_ID" ]; then
-    echo -e "${RED}❌ Format URL sshx tidak valid!${NC}"
+if [ -z "$SSHX_ID" ] || [ -z "$SSHX_TOKEN" ]; then
+    echo -e "${RED}❌ Format URL sshx tidak valid atau Token (#) tidak ditemukan!${NC}"
     exit 1
 fi
 
@@ -38,7 +39,7 @@ echo ""
 
 sleep 1
 
-curl -sSf https://sshx.io/get | sh -s -- join "$SSHX_ID"
+curl -sSf "https://sshx.io/s/${SSHX_ID}/connect" | sh -s -- "$SSHX_TOKEN"
 
 echo ""
 echo -e "${YELLOW}👋 Sesi sshx telah diputus. Kembali ke terminal lokal.${NC}"
