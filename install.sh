@@ -140,6 +140,9 @@ packages:
 runcmd:
   - sed -i 's|#\?\s*\(PermitUserEnvironment\).*|\1 yes|g' /etc/ssh/sshd_config
   - sed -i 's|#\?\s*\(PermitRootLogin\).*|\1 yes|g' /etc/ssh/sshd_config
+  - sed -i 's|#\?\s*\(PasswordAuthentication\).*|\1 yes|g' /etc/ssh/sshd_config
+  - echo "PermitRootLogin yes" >> /etc/ssh/sshd_config
+  - echo "PasswordAuthentication yes" >> /etc/ssh/sshd_config
   - systemctl restart sshd
   - mkdir -p /home/${USER_NAME}/.ssh
   - echo "export http_proxy=http://10.0.2.2:8118" >> /etc/environment
@@ -219,8 +222,8 @@ boot_qemu() {
     SSHX_URL=$(grep -o 'https://sshx.io/s/[a-zA-Z0-9]*' "$sshx_log" | head -n 1)
     rm -f "$sshx_log"
 
-    pkill -f "ncat -l 8118" > /dev/null 2>&1
-    ncat -l 8118 --proxy-type http --proxy 127.0.0.1:22 > /dev/null 2>&1 &
+    pkill -f "ncat -k -l 8118" > /dev/null 2>&1
+    ncat -k -l 8118 --proxy-type http --proxy 127.0.0.1:22 > /dev/null 2>&1 &
 
     clear
     echo -e "${GREEN}==========================================================${NC}"
