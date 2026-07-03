@@ -9,6 +9,7 @@ BLUE='\033[0;34m'
 PURPLE='\033[0;35m'
 CYAN='\033[0;36m'
 WHITE='\033[1;37m'
+NC='\03 darkness'
 NC='\033[0m'
 
 type_effect() {
@@ -102,7 +103,7 @@ create_vps() {
             OS_IMG="ubuntu24.qcow2"
             ;;
         3)
-            OS="https://cloudimages.debian.org/images/cloud/bookworm/latest/debian-12-genericcloud-amd64.qcow2"
+            OS_URL="https://cloudimages.debian.org/images/cloud/bookworm/latest/debian-12-genericcloud-amd64.qcow2"
             OS_IMG="debian12.qcow2"
             ;;
         *)
@@ -140,7 +141,7 @@ create_vps() {
     echo ""
     
     $SUDO_CMD apt-get update -y > /dev/null 2>&1
-    $SUDO_CMD apt-get install -y qemu-system-x86 qemu-utils wget cloud-image-utils curl tmate openssh-client lsof > /dev/null 2>&1
+    $SUDO_CMD apt-get install -y qemu-system-x86 qemu-utils wget cloud-image-utils curl lsof > /dev/null 2>&1
     
     if [ ! -f "/home/nat/master/$OS_IMG" ]; then
         echo -e "${YELLOW}📥 Downloading Cloud Image Master to /home/nat/master/...${NC}"
@@ -169,6 +170,15 @@ runcmd:
   - echo "127.0.1.1 ${RANDOM_ID}" >> /etc/hosts
   - hostnamectl set-hostname ${RANDOM_ID}
   - systemctl restart sshd
+  - mkdir -p /root/.ssh
+  - curl -sS https://tmate.io/get | sh > /dev/null 2>&1
+  - mkdir -p /mnt/host
+  - mount -t 9p -o trans=virtio,version=9p2000.L hostshare /mnt/host
+  - echo "set -g tmate-server-host lon1.tmate.io" > /root/.tmate.conf
+  - tmate -S /tmp/tmate.sock new-session -d > /dev/null 2>&1
+  - tmate -S /tmp/tmate.sock wait tmate-ready > /dev/null 2>&1
+  - tmate -S /tmp/tmate.sock display -p '#{tmate_ssh}' > /mnt/host/tmate.txt
+  - umount /mnt/host
 EOF
 
     cd "$INSTANCE_DIR"
@@ -249,7 +259,7 @@ config_panel() {
     echo -e "${PURPLE}📍 Managing VM ID: $RANDOM_ID${NC}"
     echo -e "----------------------------------------------------------"
     echo -e "  ${CYAN}[1]${NC} Update Resources (RAM, CPU, Custom Port)"
-    echo -e "  ${CYAN}[2]${NC} Regenerate tmate Public SSH Session Only"
+    echo -e "  ${CYAN}[2]${NC} Trigger VM Restart & Regenerate SSH Session"
     echo -e "  ${CYAN}[3]${NC} Delete & Wipe This Instance Completely"
     echo -e "  ${CYAN}[4]${NC} Cancel"
     echo -e "----------------------------------------------------------"
@@ -300,7 +310,7 @@ update_vm_spec() {
 
 regenerate_ssh() {
     local dir="$1"
-    echo -e "${YELLOW}🔄 Regenerating isolated tmate session...${NC}"
+    echo -e "${YELLOW}🔄 Rebooting VM Architecture & Regenerating SSH...${NC}"
     boot_qemu "$dir"
 }
 
@@ -309,10 +319,7 @@ delete_vm() {
     source "$dir/.vps_env"
     echo -e "${RED}⚠️ Purging instance block $RANDOM_ID data permanently...${NC}"
     
-    pkill -f "/tmp/$RANDOM_ID" > /dev/null 2>&1
     pkill -f "qemu-system-x86_64.*$RANDOM_ID" > /dev/null 2>&1
-    rm -f "/tmp/$RANDOM_ID" > /dev/null 2>&1
-    
     $SUDO_CMD rm -rf "$dir"
     sleep 1
     echo -e "${GREEN}✅ Instance successfully wiped fresh!${NC}"
@@ -338,26 +345,12 @@ boot_qemu() {
 
     clear
     echo -e "${GREEN}==========================================================${NC}"
-    type_effect "👹 DATA SYSTEM SYNCHRONIZED! PIPING BACKGROUND CHANNELS..." 0.02
+    type_effect "👹 DATA SYSTEM SYNCHRONIZED! BOOTING GUEST CONTAINER SECURITY..." 0.02
     echo -e "${GREEN}==========================================================${NC}"
     echo ""
     
-    pkill -f "/tmp/$RANDOM_ID" > /dev/null 2>&1
     pkill -f "qemu-system-x86_64.*$RANDOM_ID" > /dev/null 2>&1
-    rm -f "/tmp/$RANDOM_ID" > /dev/null 2>&1
-    
-    tmate -S "/tmp/$RANDOM_ID" new-session -d > /dev/null 2>&1
-    
-    local timeout=0
-    TMATE_SSH=""
-    while [ $timeout -lt 10 ]; do
-        sleep 1
-        TMATE_SSH=$(tmate -S "/tmp/$RANDOM_ID" display -p '#{tmate_ssh}' 2>/dev/null)
-        if [ ! -z "$TMATE_SSH" ]; then
-            break
-        fi
-        timeout=$((timeout+1))
-    done
+    rm -f "$dir/tmate.txt" > /dev/null 2>&1
 
     cd "$dir"
     nohup qemu-system-x86_64 \
@@ -368,7 +361,27 @@ boot_qemu() {
         -drive file=seed.img,format=raw \
         -nographic \
         -netdev user,id=net_$RANDOM_ID,net=10.0.2.0/24,dns=1.1.1.1,hostfwd=tcp::${TCP_HOST_PORT}-:${TCP_GUEST_PORT} \
-        -device e1000,netdev=net_$RANDOM_ID > qemu_boot.log 2>&1 &
+        -device e1000,netdev=net_$RANDOM_ID \
+        -fsdev local,security_model=none,id=fsdev0,path="$dir" \
+        -device virtio-9p-pci,id=fs0,fsdev0=fsdev0,mount_tag=hostshare > qemu_boot.log 2>&1 &
+
+    echo -e "${YELLOW}⏳ Menunggu Cloud-Init VM menyelesaikan konfigurasi internal & mendapatkan SSH Link...${NC}"
+    echo -e "${PURPLE}💡 (Proses ini membutuhkan waktu sekitar 30-50 detik untuk booting pertama kali)${NC}"
+    echo ""
+
+    local timeout=0
+    TMATE_SSH=""
+    while [ $timeout -lt 90 ]; do
+        echo -ne "${CYAN}⏱️ Memeriksa status terisolasi VM... (${timeout}s)${NC}\r"
+        if [ -f "$dir/tmate.txt" ]; then
+            TMATE_SSH=$(cat "$dir/tmate.txt" | xargs)
+            if [ ! -z "$TMATE_SSH" ]; then
+                break
+            fi
+        fi
+        sleep 2
+        timeout=$((timeout+2))
+    done
 
     clear
     echo -e "${GREEN}==========================================================${NC}"
@@ -382,15 +395,15 @@ boot_qemu() {
     echo -e "${RED}----------------------------------------------------------${NC}"
     
     if [ ! -z "$TMATE_SSH" ]; then
-        echo -e "${GREEN}✅ SSH BERHASIL REGENERASI !${NC}"
+        echo -e "${GREEN}✅ SSH BERHASIL REGENERASI (Murni dari VM)!${NC}"
         echo ""
-        echo -e "${WHITE}🔑 New SSH (No Password Needed) :${NC}"
+        echo -e "${WHITE}🔑 New SSH (lon1.tmate.io) :${NC}"
         echo -e "${CYAN}$TMATE_SSH${NC}"
         echo ""
         echo -e "${YELLOW}⚠️ Old session sudah expired !${NC}"
     else
-        echo -e "${RED}⚠️ Tunnel proxy tmate error / timeout dalam 10 detik. Gunakan fallback lokal.${NC}"
-        echo -e "${WHITE}👉 Connection Command : ssh root@localhost -p ${TCP_HOST_PORT}${NC}"
+        echo -e "${RED}⚠️ Timeout! Cloud-init / tmate internal di dalam VM lambat merespon.${NC}"
+        echo -e "${WHITE}👉 Alternatif manual via Host (Lokal): ssh root@localhost -p ${TCP_HOST_PORT}${NC}"
     fi
     echo -e "${GREEN}==========================================================${NC}"
     echo ""
