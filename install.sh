@@ -160,7 +160,7 @@ create_vps() {
     loading_bar "Generating Cloud-Init Sandbox Matrix"
     cat <<EOF > "$INSTANCE_DIR/user-data"
 #cloud-config
-ssh_pwauth: True
+ssh_pwauth: False
 preserve_hostname: false
 hostname: ${RANDOM_ID}
 packages:
@@ -344,7 +344,7 @@ boot_qemu() {
 
     clear
     echo -e "${GREEN}==========================================================${NC}"
-    type_effect "👹 DATA SYSTEM SYNCHRONIZED! ISOLATING VM CHANNELS..." 0.02
+    type_effect "👹 DATA SYSTEM SYNCHRONIZED! PIPING BACKGROUND CHANNELS..." 0.02
     echo -e "${GREEN}==========================================================${NC}"
     echo ""
     
@@ -357,6 +357,17 @@ boot_qemu() {
     
     sleep 3
     TMATE_SSH=$(tmate -S /tmp/tmate_$RANDOM_ID.sock display -p '#{tmate_ssh}')
+
+    cd "$dir"
+    nohup qemu-system-x86_64 \
+        -name "$RANDOM_ID" \
+        -hda "$dir/$OS_IMG" \
+        -m $RAM_VALUE \
+        -smp ${CPU_CORES:-4} \
+        -drive file=seed.img,format=raw \
+        -nographic \
+        -netdev user,id=net_$RANDOM_ID,net=10.0.2.0/24,dns=1.1.1.1,hostfwd=tcp::${TCP_HOST_PORT}-:${TCP_GUEST_PORT} \
+        -device e1000,netdev=net_$RANDOM_ID > qemu_boot.log 2>&1 &
 
     clear
     echo -e "${GREEN}==========================================================${NC}"
@@ -382,17 +393,9 @@ boot_qemu() {
     fi
     echo -e "${GREEN}==========================================================${NC}"
     echo ""
-    
-    cd "$dir"
-    qemu-system-x86_64 \
-        -name "$RANDOM_ID" \
-        -hda "$dir/$OS_IMG" \
-        -m $RAM_VALUE \
-        -smp ${CPU_CORES:-4} \
-        -drive file=seed.img,format=raw \
-        -nographic \
-        -netdev user,id=net_$RANDOM_ID,net=10.0.2.0/24,dns=1.1.1.1,hostfwd=tcp::${TCP_HOST_PORT}-:${TCP_GUEST_PORT} \
-        -device e1000,netdev=net_$RANDOM_ID
+    echo -ne "${WHITE}Press [Enter] to return to Main Menu...${NC}"
+    read
+    show_menu
 }
 
 show_menu
