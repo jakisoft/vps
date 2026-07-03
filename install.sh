@@ -63,30 +63,74 @@ show_menu() {
     echo ""
     echo -e "${YELLOW}👉 SELECT AN OPTION TO PROCEED FROM LIST:${NC}"
     echo ""
-    echo -e "  ${CYAN}[1]${NC} Create & Boot New NAT VPS Instance"
-    echo -e "  ${CYAN}[2]${NC} Restart Existing VPS Instance"
-    echo -e "  ${CYAN}[3]${NC} Modify TCP Port Forward Rules (Default: 2222)"
-    echo -e "  ${CYAN}[4]${NC} Remove/Clean VPS Cache Files"
-    echo -e "  ${CYAN}[5]${NC} Exit Dashboard"
+    echo -e "  ${CYAN}[1]${NC} List VM NAT Active Instance"
+    echo -e "  ${CYAN}[2]${NC} Configuration & VM Management Panel"
+    echo -e "  ${CYAN}[3]${NC} Exit Dashboard"
     echo ""
     echo -e "${RED}==========================================================${NC}"
-    echo -ne "${WHITE}🔹 Enter Choice [1-5]: ${NC}"
+    echo -ne "${WHITE}🔹 Enter Choice [1-3]: ${NC}"
     read CHOICE
     
     case $CHOICE in
-        1) create_vps ;;
-        2) restart_vps ;;
-        3) configure_tcp ;;
-        4) clean_vps ;;
-        5) exit 0 ;;
-        *) echo -e "${RED}❌ Invalid Choice! Please select 1-5.${NC}"; sleep 2; show_menu ;;
+        1) list_vm ;;
+        2) config_panel ;;
+        3) exit 0 ;;
+        *) echo -e "${RED}❌ Invalid Choice! Please select 1-3.${NC}"; sleep 2; show_menu ;;
     esac
 }
 
-create_vps() {
+list_vm() {
+    clear
+    echo -e "${GREEN}==========================================================${NC}"
+    echo -e "📋              JKSOFT - ACTIVE NAT VM LIST               "
+    echo -e "${GREEN}==========================================================${NC}"
+    echo ""
+    if [ -f ".vps_env" ]; then
+        source .vps_env
+        echo -e "${WHITE}🆔 NAT ID     : ${CYAN}${RANDOM_ID}${NC}"
+        echo -e "${WHITE}💿 OS Image   : ${CYAN}${OS_IMG}${NC}"
+        echo -e "${WHITE}⚙️  Resources  : ${CYAN}${RAM_GB}G RAM | ${CPU_CORES} Cores${NC}"
+        echo -e "${WHITE}🚀 Port Forward: ${YELLOW}Host Port ${TCP_HOST_PORT} -> VM Port ${TCP_GUEST_PORT}${NC}"
+        echo -e "${WHITE}👤 Username   : ${CYAN}root${NC}"
+        echo -e "${WHITE}🔑 Password   : ${CYAN}${USER_PASS}${NC}"
+    else
+        echo -e "${RED}❌ No active VM instances detected. Please configure one.${NC}"
+    fi
+    echo ""
+    echo -e "${GREEN}==========================================================${NC}"
+    echo -ne "${WHITE}Press [Enter] to return to menu...${NC}"
+    read
+    show_menu
+}
+
+config_panel() {
+    clear
+    echo -e "${YELLOW}==========================================================${NC}"
+    echo -e "${WHITE}⚙️🛠️  JKSOFT CONFIGURATION & MANAGEMENT PANEL${NC}"
+    echo -e "${YELLOW}==========================================================${NC}"
+    echo ""
+    echo -e "  ${CYAN}[1]${NC} Create / Full Reconfigure VM NAT (OS, RAM, CPU, Disk, Port)"
+    echo -e "  ${CYAN}[2]${NC} Regenerate tmate Public SSH Session"
+    echo -e "  ${CYAN}[3]${NC} Delete / Wipe Existing VM NAT Instance"
+    echo -e "  ${CYAN}[4]${NC} Back to Main Menu"
+    echo ""
+    echo -e "${YELLOW}==========================================================${NC}"
+    echo -ne "${WHITE}🔹 Enter Config Choice [1-4]: ${NC}"
+    read CONF_CHOICE
+
+    case $CONF_CHOICE in
+        1) setup_vm_spec ;;
+        2) regenerate_ssh ;;
+        3) delete_vm ;;
+        4) show_menu ;;
+        *) echo -e "${RED}❌ Invalid Choice!${NC}"; sleep 2; config_panel ;;
+    esac
+}
+
+setup_vm_spec() {
     clear
     echo -e "${RED}==========================================================${NC}"
-    echo -e "${WHITE}⚙️  CONFIGURE YOUR VIRTUAL MACHINE SPECIFICATIONS${NC}"
+    echo -e "${WHITE}⚙️  SET / OVERWRITE VIRTUAL MACHINE SPECIFICATIONS${NC}"
     echo -e "${RED}==========================================================${NC}"
     echo ""
     
@@ -111,10 +155,8 @@ create_vps() {
             OS_IMG="debian12.qcow2"
             ;;
         *)
-            echo -e "${RED}❌ Invalid Option! Defaulting to Ubuntu 22.04.${NC}"
             OS_URL="https://cloud-images.ubuntu.com/jammy/current/jammy-server-cloudimg-amd64.img"
             OS_IMG="ubuntu22.qcow2"
-            sleep 1
             ;;
     esac
 
@@ -125,11 +167,13 @@ create_vps() {
     read CPU_CORES
     echo -ne "${BLUE}🔹 Enter Disk Space to ADD in GB (e.g., 10, 20): ${NC}"
     read DISK_ADD
+    echo -ne "${BLUE}🔹 Enter Custom External Host Port (e.g., 2222, 5000): ${NC}"
+    read TCP_HOST_PORT
+    TCP_HOST_PORT=${TCP_HOST_PORT:-2222}
     echo -ne "${BLUE}🔹 Create Password for root (Default: 1234): ${NC}"
     read USER_PASS
     USER_PASS=${USER_PASS:-1234}
     
-    TCP_HOST_PORT=${TCP_HOST_PORT:-2222}
     TCP_GUEST_PORT=22
 
     echo ""
@@ -145,8 +189,6 @@ create_vps() {
         echo -e "${YELLOW}📥 Downloading Cloud Image to /home/nat/...${NC}"
         $SUDO_CMD wget -q --show-progress "$OS_URL" -O /home/nat/$OS_IMG
         $SUDO_CMD chmod 666 /home/nat/$OS_IMG
-    else
-        echo -e "${GREEN}✅ Existing Image Cache Detected at /home/nat/.${NC}"
     fi
     
     loading_bar "Generating Cloud-Init Matrix"
@@ -179,29 +221,27 @@ EOF
     boot_qemu
 }
 
-configure_tcp() {
-    clear
-    echo -e "${YELLOW}==========================================================${NC}"
-    echo -e "${WHITE}🔄⚙️  MANAGE CUSTOM TCP PORT FORWARDING RULES ${NC}"
-    echo -e "${YELLOW}==========================================================${NC}"
-    echo ""
+regenerate_ssh() {
+    if [ ! -f ".vps_env" ]; then
+        echo -e "${RED}❌ No existing VM configuration found to regenerate SSH!${NC}"
+        sleep 2
+        config_panel
+        return
+    fi
+    echo -e "${YELLOW}🔄 Regenerating tmate session tunnels...${NC}"
+    boot_qemu
+}
+
+delete_vm() {
+    echo -e "${RED}⚠️ Purging system storage components and configurations...${NC}"
     if [ -f ".vps_env" ]; then
         source .vps_env
     fi
-    echo -e "Current Target Host Port  : ${CYAN}${TCP_HOST_PORT:-2222}${NC}"
-    echo -e "Current Guest VM Port     : ${CYAN}${TCP_GUEST_PORT:-22}${NC}"
-    echo ""
-    echo -ne "${BLUE}🔹 Enter NEW External Host Port (Default base: 2222): ${NC}"
-    read NEW_HOST_PORT
-    TCP_HOST_PORT=${NEW_HOST_PORT:-2222}
-    
-    echo -ne "${BLUE}🔹 Enter Internal Guest Port (Default SSH: 22): ${NC}"
-    read NEW_GUEST_PORT
-    TCP_GUEST_PORT=${NEW_GUEST_PORT:-22}
-    
-    save_env
-    echo ""
-    echo -e "${GREEN}✅ TCP Rule Updated Successfully!${NC}"
+    $SUDO_CMD rm -rf user-data seed.img /home/nat/${OS_IMG:-*.qcow2} .vps_env
+    pkill -f tmate > /dev/null 2>&1
+    rm -f /tmp/tmate.sock > /dev/null 2>&1
+    sleep 1
+    echo -e "${GREEN}✅ Workspace successfully wiped fresh!${NC}"
     sleep 2
     show_menu
 }
@@ -273,35 +313,6 @@ boot_qemu() {
         -nographic \
         -netdev user,id=net0,net=10.0.2.0/24,dns=1.1.1.1,hostfwd=tcp::${TCP_HOST_PORT}-:${TCP_GUEST_PORT} \
         -device e1000,netdev=net0
-}
-
-restart_vps() {
-    if [ -f ".vps_env" ]; then
-        source .vps_env
-    fi
-    if [ -f "/home/nat/$OS_IMG" ] && [ -f "seed.img" ]; then
-        echo -e "${GREEN}🔄 Restarting existing server architecture...${NC}"
-        sleep 1
-        boot_qemu
-    else
-        echo -e "${RED}❌ No active configuration blocks found! Build module using Option 1.${NC}"
-        sleep 3
-        show_menu
-    fi
-}
-
-clean_vps() {
-    echo -e "${RED}⚠️ Purging system storage components and configurations...${NC}"
-    if [ -f ".vps_env" ]; then
-        source .vps_env
-    fi
-    $SUDO_CMD rm -rf user-data seed.img /home/nat/${OS_IMG:-*.qcow2} .vps_env
-    pkill -f tmate > /dev/null 2>&1
-    rm -f /tmp/tmate.sock > /dev/null 2>&1
-    sleep 1
-    echo -e "${GREEN}✅ Workspace successfully wiped fresh!${NC}"
-    sleep 2
-    show_menu
 }
 
 show_menu
