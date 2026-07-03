@@ -63,77 +63,41 @@ show_menu() {
     echo ""
     echo -e "${YELLOW}👉 SELECT AN OPTION TO PROCEED FROM LIST:${NC}"
     echo ""
-    echo -e "  ${CYAN}[1]${NC} List VM NAT Active Instance"
-    echo -e "  ${CYAN}[2]${NC} Configuration & VM Management Panel"
-    echo -e "  ${CYAN}[3]${NC} Exit Dashboard"
+    echo -e "  ${CYAN}[1]${NC} Create & Boot New NAT VPS Instance"
+    echo -e "  ${CYAN}[2]${NC} List VM NAT Active Instance"
+    echo -e "  ${CYAN}[3]${NC} Configuration & VM Management Panel"
+    echo -e "  ${CYAN}[4]${NC} Exit Dashboard"
     echo ""
     echo -e "${RED}==========================================================${NC}"
-    echo -ne "${WHITE}🔹 Enter Choice [1-3]: ${NC}"
+    echo -ne "${WHITE}🔹 Enter Choice [1-4]: ${NC}"
     read CHOICE
     
     case $CHOICE in
-        1) list_vm ;;
-        2) config_panel ;;
-        3) exit 0 ;;
-        *) echo -e "${RED}❌ Invalid Choice! Please select 1-3.${NC}"; sleep 2; show_menu ;;
+        1) create_vps ;;
+        2) list_vm ;;
+        3) config_panel ;;
+        4) exit 0 ;;
+        *) echo -e "${RED}❌ Invalid Choice! Please select 1-4.${NC}"; sleep 2; show_menu ;;
     esac
 }
 
-list_vm() {
-    clear
-    echo -e "${GREEN}==========================================================${NC}"
-    echo -e "📋              JKSOFT - ACTIVE NAT VM LIST               "
-    echo -e "${GREEN}==========================================================${NC}"
-    echo ""
-    if [ -f ".vps_env" ]; then
-        source .vps_env
-        echo -e "${WHITE}🆔 NAT ID     : ${CYAN}${RANDOM_ID}${NC}"
-        echo -e "${WHITE}💿 OS Image   : ${CYAN}${OS_IMG}${NC}"
-        echo -e "${WHITE}⚙️  Resources  : ${CYAN}${RAM_GB}G RAM | ${CPU_CORES} Cores${NC}"
-        echo -e "${WHITE}🚀 Port Forward: ${YELLOW}Host Port ${TCP_HOST_PORT} -> VM Port ${TCP_GUEST_PORT}${NC}"
-        echo -e "${WHITE}👤 Username   : ${CYAN}root${NC}"
-        echo -e "${WHITE}🔑 Password   : ${CYAN}${USER_PASS}${NC}"
-    else
-        echo -e "${RED}❌ No active VM instances detected. Please configure one.${NC}"
-    fi
-    echo ""
-    echo -e "${GREEN}==========================================================${NC}"
-    echo -ne "${WHITE}Press [Enter] to return to menu...${NC}"
-    read
-    show_menu
-}
-
-config_panel() {
-    clear
-    echo -e "${YELLOW}==========================================================${NC}"
-    echo -e "${WHITE}⚙️🛠️  JKSOFT CONFIGURATION & MANAGEMENT PANEL${NC}"
-    echo -e "${YELLOW}==========================================================${NC}"
-    echo ""
-    echo -e "  ${CYAN}[1]${NC} Create / Full Reconfigure VM NAT (OS, RAM, CPU, Disk, Port)"
-    echo -e "  ${CYAN}[2]${NC} Regenerate tmate Public SSH Session"
-    echo -e "  ${CYAN}[3]${NC} Delete / Wipe Existing VM NAT Instance"
-    echo -e "  ${CYAN}[4]${NC} Back to Main Menu"
-    echo ""
-    echo -e "${YELLOW}==========================================================${NC}"
-    echo -ne "${WHITE}🔹 Enter Config Choice [1-4]: ${NC}"
-    read CONF_CHOICE
-
-    case $CONF_CHOICE in
-        1) setup_vm_spec ;;
-        2) regenerate_ssh ;;
-        3) delete_vm ;;
-        4) show_menu ;;
-        *) echo -e "${RED}❌ Invalid Choice!${NC}"; sleep 2; config_panel ;;
-    esac
-}
-
-setup_vm_spec() {
+create_vps() {
     clear
     echo -e "${RED}==========================================================${NC}"
-    echo -e "${WHITE}⚙️  SET / OVERWRITE VIRTUAL MACHINE SPECIFICATIONS${NC}"
+    echo -e "${WHITE}⚙️  CREATE NEW VIRTUAL MACHINE NAT${NC}"
     echo -e "${RED}==========================================================${NC}"
     echo ""
     
+    if [ -f ".vps_env" ]; then
+        echo -e "${YELLOW}⚠️ VM lama terdeteksi. Membuat baru akan menimpa VM saat ini.${NC}"
+        echo -ne "${WHITE}Lanjutkan? (y/n): ${NC}"
+        read CONFIRM
+        if [ "$CONFIRM" != "y" ] && [ "$CONFIRM" != "Y" ]; then
+            show_menu
+            return
+        fi
+    fi
+
     echo -e "${YELLOW}👉 CHOOSE OPERATING SYSTEM:${NC}"
     echo -e "  ${CYAN}[1]${NC} Ubuntu 22.04 LTS"
     echo -e "  ${CYAN}[2]${NC} Ubuntu 24.04 LTS"
@@ -185,11 +149,11 @@ setup_vm_spec() {
     
     $SUDO_CMD mkdir -p /home/nat > /dev/null 2>&1
     
-    if [ ! -f "/home/nat/$OS_IMG" ]; then
-        echo -e "${YELLOW}📥 Downloading Cloud Image to /home/nat/...${NC}"
-        $SUDO_CMD wget -q --show-progress "$OS_URL" -O /home/nat/$OS_IMG
-        $SUDO_CMD chmod 666 /home/nat/$OS_IMG
-    fi
+    $SUDO_CMD rm -f /home/nat/*.qcow2 seed.img user-data > /dev/null 2>&1
+    
+    echo -e "${YELLOW}📥 Downloading Cloud Image to /home/nat/...${NC}"
+    $SUDO_CMD wget -q --show-progress "$OS_URL" -O /home/nat/$OS_IMG
+    $SUDO_CMD chmod 666 /home/nat/$OS_IMG
     
     loading_bar "Generating Cloud-Init Matrix"
     cat <<EOF > user-data
@@ -218,6 +182,92 @@ EOF
     RANDOM_ID=$(tr -dc 'a-z0-9' < /dev/dev/urandom | head -c 10)
     
     save_env
+    boot_qemu
+}
+
+list_vm() {
+    clear
+    echo -e "${GREEN}==========================================================${NC}"
+    echo -e "📋              JKSOFT - ACTIVE NAT VM LIST               "
+    echo -e "${GREEN}==========================================================${NC}"
+    echo ""
+    if [ -f ".vps_env" ]; then
+        source .vps_env
+        echo -e "${WHITE}🆔 NAT ID     : ${CYAN}${RANDOM_ID}${NC}"
+        echo -e "${WHITE}💿 OS Image   : ${CYAN}${OS_IMG}${NC}"
+        echo -e "${WHITE}⚙️  Resources  : ${CYAN}${RAM_GB}G RAM | ${CPU_CORES} Cores${NC}"
+        echo -e "${WHITE}🚀 Port Forward: ${YELLOW}Host Port ${TCP_HOST_PORT} -> VM Port ${TCP_GUEST_PORT}${NC}"
+        echo -e "${WHITE}👤 Username   : ${CYAN}root${NC}"
+        echo -e "${WHITE}🔑 Password   : ${CYAN}${USER_PASS}${NC}"
+    else
+        echo -e "${RED}❌ No active VM instances detected. Please create one.${NC}"
+    fi
+    echo ""
+    echo -e "${GREEN}==========================================================${NC}"
+    echo -ne "${WHITE}Press [Enter] to return to menu...${NC}"
+    read
+    show_menu
+}
+
+config_panel() {
+    clear
+    echo -e "${YELLOW}==========================================================${NC}"
+    echo -e "${WHITE}⚙️🛠️  JKSOFT CONFIGURATION & MANAGEMENT PANEL${NC}"
+    echo -e "${YELLOW}==========================================================${NC}"
+    echo ""
+    echo -e "  ${CYAN}[1]${NC} Update Existing VM Specs (RAM, CPU, Custom Port)"
+    echo -e "  ${CYAN}[2]${NC} Regenerate tmate Public SSH Session"
+    echo -e "  ${CYAN}[3]${NC} Delete / Wipe Existing VM NAT Instance"
+    echo -e "  ${CYAN}[4]${NC} Back to Main Menu"
+    echo ""
+    echo -e "${YELLOW}==========================================================${NC}"
+    echo -ne "${WHITE}🔹 Enter Config Choice [1-4]: ${NC}"
+    read CONF_CHOICE
+
+    case $CONF_CHOICE in
+        1) update_vm_spec ;;
+        2) regenerate_ssh ;;
+        3) delete_vm ;;
+        4) show_menu ;;
+        *) echo -e "${RED}❌ Invalid Choice!${NC}"; sleep 2; config_panel ;;
+    esac
+}
+
+update_vm_spec() {
+    clear
+    echo -e "${YELLOW}==========================================================${NC}"
+    echo -e "${WHITE}⚙️  UPDATE VM RESOURCES CONFIGURATION${NC}"
+    echo -e "${YELLOW}==========================================================${NC}"
+    echo ""
+    
+    if [ ! -f ".vps_env" ]; then
+        echo -e "${RED}❌ No active VM found to update! Create one first.${NC}"
+        sleep 2
+        show_menu
+        return
+    fi
+
+    source .vps_env
+    
+    echo -e "Current Specification:"
+    echo -e "RAM: ${CYAN}${RAM_GB}G${NC} | CPU: ${CYAN}${CPU_CORES} Cores${NC} | Port: ${CYAN}${TCP_HOST_PORT}${NC}"
+    echo ""
+    
+    echo -ne "${BLUE}🔹 Enter NEW RAM Size in GB (Leave empty to keep current): ${NC}"
+    read NEW_RAM
+    RAM_GB=${NEW_RAM:-$RAM_GB}
+    
+    echo -ne "${BLUE}🔹 Enter NEW CPU Cores (Leave empty to keep current): ${NC}"
+    read NEW_CPU
+    CPU_CORES=${NEW_CPU:-$CPU_CORES}
+    
+    echo -ne "${BLUE}🔹 Enter NEW Custom External Host Port (Leave empty to keep current): ${NC}"
+    read NEW_PORT
+    TCP_HOST_PORT=${NEW_PORT:-$TCP_HOST_PORT}
+    
+    save_env
+    echo -e "${GREEN}✅ Resources successfully updated! Booting machine...${NC}"
+    sleep 1
     boot_qemu
 }
 
@@ -286,7 +336,7 @@ boot_qemu() {
     echo -e "${GREEN}==========================================================${NC}"
     echo -e "${WHITE}👤 Username   : ${CYAN}root${NC}"
     echo -e "${WHITE}🔑 Password   : ${CYAN}${USER_PASS:-1234}${NC}"
-    echo -e "${WHITE}⚙️  Resources  : ${CYAN}${RAM_VALUE} RAM | ${CPU_CORES:-4} Cores${NC}"
+    echo -e "${WHITE}⚙️ Resources  : ${CYAN}${RAM_VALUE} RAM | ${CPU_CORES:-4} Cores${NC}"
     echo -e "${WHITE}🆔 NAT ID     : ${CYAN}${RANDOM_ID}${NC}"
     echo -e "${WHITE}🚀 Port Rule  : ${YELLOW}Host Port ${TCP_HOST_PORT} -> VM Port ${TCP_GUEST_PORT}${NC}"
     echo -e "${RED}----------------------------------------------------------${NC}"
