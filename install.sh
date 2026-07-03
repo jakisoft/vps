@@ -27,9 +27,9 @@ loading_bar() {
     sleep 0.3
     echo -ne "\b\b\b\b\b\b\b\b\b\b\b[===       ]"
     sleep 0.3
-    echo -ne "\b\b\b\b\b\b\b\b\b\b\b[======     ]"
+    echo -ne "\b\b\b\b\b\b\b\b\b\b\b[======    ]"
     sleep 0.3
-    echo -ne "\b\b\b\b\b\b\b\b\b\b\b[=========  ]"
+    echo -ne "\b\b\b\b\b\b\b\b\b\b\b[========= ]"
     sleep 0.3
     echo -ne "\b\b\b\b\b\b\b\b\b\b\b[==========]"
     echo -e " ${GREEN}DONE!${NC}"
@@ -44,15 +44,15 @@ fi
 show_menu() {
     clear
     echo -e "${RED}==========================================================${NC}"
-    echo -e "${WHITE}          [👹 DXD LABS PREMIUM VPS DASHBOARD 👹]          ${NC}"
+    echo -e "${WHITE}          [👹 JKSOFT PREMIUM VPS DASHBOARD 👹]           ${NC}"
     echo -e "${RED}==========================================================${NC}"
     echo -e "${WHITE}                ┌─────────────────────────┐               ${NC}"
     echo -e "${WHITE}                │   ${RED}█▀▀█ █──█ █▄─▄█ █▀▀█${WHITE}  │  <[SUKUNA V2] ${NC}"
     echo -e "${WHITE}                │   ${RED}█▄▄█ █▄▄█ █ █ █ █▄▄█${WHITE}  │               ${NC}"
     echo -e "${WHITE}                └─────────────────────────┘               ${NC}"
-    echo -e "${PURPLE}                    (█)─(█)     (█)─(█)                   ${NC}"
-    echo -e "${PURPLE}                   █████████   █████████                  ${NC}"
-    echo -e "${RED}                  ███████████████████████                 ${NC}"
+    echo -e "${PURPLE}                     (█)─(█)     (█)─(█)                  ${NC}"
+    echo -e "${PURPLE}                    █████████   █████████                 ${NC}"
+    echo -e "${RED}                   ███████████████████████                ${NC}"
     echo -e "${RED}==========================================================${NC}"
     echo -e "${CYAN}  ____  _____ _   _ ____     ____    _    __  __ ___ _   _  ____ ${NC}"
     echo -e "${CYAN} |  _ \| ____| | | |  _ \   / ___|  / \  |  \/  |_ _| \ | |/ ___|${NC}"
@@ -63,7 +63,7 @@ show_menu() {
     echo ""
     echo -e "${YELLOW}👉 SELECT AN OPTION TO PROCEED FROM LIST:${NC}"
     echo ""
-    echo -e "  ${CYAN}[1]${NC} Create & Boot New Ubuntu VPS Instance"
+    echo -e "  ${CYAN}[1]${NC} Create & Boot New NAT VPS Instance"
     echo -e "  ${CYAN}[2]${NC} Restart Existing VPS Instance"
     echo -e "  ${CYAN}[3]${NC} Modify TCP Port Forward Rules (Default: 2222)"
     echo -e "  ${CYAN}[4]${NC} Remove/Clean VPS Cache Files"
@@ -90,16 +90,42 @@ create_vps() {
     echo -e "${RED}==========================================================${NC}"
     echo ""
     
+    echo -e "${YELLOW}👉 CHOOSE OPERATING SYSTEM:${NC}"
+    echo -e "  ${CYAN}[1]${NC} Ubuntu 22.04 LTS"
+    echo -e "  ${CYAN}[2]${NC} Ubuntu 24.04 LTS"
+    echo -e "  ${CYAN}[3]${NC} Debian 12 Bookworm"
+    echo -ne "${WHITE}🔹 Select OS [1-3]: ${NC}"
+    read OS_CHOICE
+
+    case $OS_CHOICE in
+        1)
+            OS_URL="https://cloud-images.ubuntu.com/jammy/current/jammy-server-cloudimg-amd64.img"
+            OS_IMG="ubuntu22.qcow2"
+            ;;
+        2)
+            OS_URL="https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img"
+            OS_IMG="ubuntu24.qcow2"
+            ;;
+        3)
+            OS_URL="https://cloudimages.debian.org/images/cloud/bookworm/latest/debian-12-genericcloud-amd64.qcow2"
+            OS_IMG="debian12.qcow2"
+            ;;
+        *)
+            echo -e "${RED}❌ Invalid Option! Defaulting to Ubuntu 22.04.${NC}"
+            OS_URL="https://cloud-images.ubuntu.com/jammy/current/jammy-server-cloudimg-amd64.img"
+            OS_IMG="ubuntu22.qcow2"
+            sleep 1
+            ;;
+    esac
+
+    echo ""
     echo -ne "${BLUE}🔹 Enter RAM Size in GB (e.g., 4, 8, 16, 32): ${NC}"
     read RAM_GB
     echo -ne "${BLUE}🔹 Enter CPU Cores (e.g., 2, 4, 8): ${NC}"
     read CPU_CORES
     echo -ne "${BLUE}🔹 Enter Disk Space to ADD in GB (e.g., 10, 20): ${NC}"
     read DISK_ADD
-    echo -ne "${BLUE}🔹 Create Username (Default: ubuntu): ${NC}"
-    read USER_NAME
-    USER_NAME=${USER_NAME:-ubuntu}
-    echo -ne "${BLUE}🔹 Create Password (Default: 1234): ${NC}"
+    echo -ne "${BLUE}🔹 Create Password for root (Default: 1234): ${NC}"
     read USER_PASS
     USER_PASS=${USER_PASS:-1234}
     
@@ -111,16 +137,16 @@ create_vps() {
     echo ""
     
     $SUDO_CMD apt-get update -y > /dev/null 2>&1
-    $SUDO_CMD apt-get install -y qemu-system-x86 qemu-utils wget cloud-image-utils curl > /dev/null 2>&1
+    $SUDO_CMD apt-get install -y qemu-system-x86 qemu-utils wget cloud-image-utils curl tmate openssh-client > /dev/null 2>&1
     
-    $SUDO_CMD mkdir -p /home/daytona > /dev/null 2>&1
+    $SUDO_CMD mkdir -p /home/nat > /dev/null 2>&1
     
-    if [ ! -f "/home/daytona/ubuntu22.qcow2" ]; then
-        echo -e "${YELLOW}📥 Downloading Ubuntu 22.04 Cloud Image to /home/daytona/...${NC}"
-        $SUDO_CMD wget -q --show-progress https://cloud-images.ubuntu.com/jammy/current/jammy-server-cloudimg-amd64.img -O /home/daytona/ubuntu22.qcow2
-        $SUDO_CMD chmod 666 /home/daytona/ubuntu22.qcow2
+    if [ ! -f "/home/nat/$OS_IMG" ]; then
+        echo -e "${YELLOW}📥 Downloading Cloud Image to /home/nat/...${NC}"
+        $SUDO_CMD wget -q --show-progress "$OS_URL" -O /home/nat/$OS_IMG
+        $SUDO_CMD chmod 666 /home/nat/$OS_IMG
     else
-        echo -e "${GREEN}✅ Existing Ubuntu Image Cache Detected at /home/daytona/.${NC}"
+        echo -e "${GREEN}✅ Existing Image Cache Detected at /home/nat/.${NC}"
     fi
     
     loading_bar "Generating Cloud-Init Matrix"
@@ -129,28 +155,25 @@ create_vps() {
 ssh_pwauth: True
 chpasswd:
   list: |
-    ${USER_NAME}:${USER_PASS}
     root:${USER_PASS}
   expire: False
 packages:
-  - tmux
   - curl
   - wget
+  - tmux
 runcmd:
   - sed -i 's|#\?\s*\(PermitRootLogin\).*|\1 yes|g' /etc/ssh/sshd_config
   - sed -i 's|#\?\s*\(PasswordAuthentication\).*|\1 yes|g' /etc/ssh/sshd_config
   - echo "PermitRootLogin yes" >> /etc/ssh/sshd_config
   - echo "PasswordAuthentication yes" >> /etc/ssh/sshd_config
   - systemctl restart sshd
-  - mkdir -p /home/${USER_NAME}/.ssh
-  - echo 'if [ -z "\$TMUX" ]; then tmux attach-session -t main_session || tmux new-session -s main_session; fi' >> /home/${USER_NAME}/.bashrc
-  - echo 'if [ -z "\$TMUX" ]; then tmux attach-session -t main_session || tmux new-session -s main_session; fi' >> /root/.bashrc
-  - chown -R ${USER_NAME}:${USER_NAME} /home/${USER_NAME}/
 EOF
 
     cloud-localds seed.img user-data > /dev/null 2>&1
     loading_bar "Expanding Server Hard Disk Allocation"
-    $SUDO_CMD qemu-img resize /home/daytona/ubuntu22.qcow2 +${DISK_ADD}G > /dev/null 2>&1
+    $SUDO_CMD qemu-img resize /home/nat/$OS_IMG +${DISK_ADD}G > /dev/null 2>&1
+    
+    RANDOM_ID=$(tr -dc 'a-z0-9' < /dev/dev/urandom | head -c 10)
     
     save_env
     boot_qemu
@@ -186,10 +209,11 @@ configure_tcp() {
 save_env() {
     echo "RAM_GB=${RAM_GB:-32}" > .vps_env
     echo "CPU_CORES=${CPU_CORES:-4}" >> .vps_env
-    echo "USER_NAME=${USER_NAME:-ubuntu}" >> .vps_env
     echo "USER_PASS=${USER_PASS:-1234}" >> .vps_env
     echo "TCP_HOST_PORT=${TCP_HOST_PORT:-2222}" >> .vps_env
     echo "TCP_GUEST_PORT=${TCP_GUEST_PORT:-22}" >> .vps_env
+    echo "OS_IMG=${OS_IMG:-ubuntu22.qcow2}" >> .vps_env
+    echo "RANDOM_ID=${RANDOM_ID:-vpsnat10dg}" >> .vps_env
 }
 
 boot_qemu() {
@@ -207,36 +231,42 @@ boot_qemu() {
     echo -e "${GREEN}==========================================================${NC}"
     echo ""
     
-    pkill -f sshx > /dev/null 2>&1
-    sshx_log=$(mktemp)
-    curl -sSf https://sshx.io/get | sh -s run > "$sshx_log" 2>&1 &
+    pkill -f tmate > /dev/null 2>&1
+    rm -f /tmp/tmate.sock > /dev/null 2>&1
     
-    sleep 5
-    SSHX_URL=$(grep -o 'https://sshx.io/s/[a-zA-Z0-9]*' "$sshx_log" | head -n 1)
-    rm -f "$sshx_log"
+    tmate -S /tmp/tmate.sock new-session -d > /dev/null 2>&1
+    tmate -S /tmp/tmate.sock wait tmate-ready > /dev/null 2>&1
+    
+    sleep 3
+    TMATE_SSH=$(tmate -S /tmp/tmate.sock display -p '#{tmate_ssh}')
 
     clear
     echo -e "${GREEN}==========================================================${NC}"
-    echo -e "🎉       DEUP GAMING & DXD LABS - VM NETWORK ACTIVE        "
+    echo -e "🎉              JKSOFT - VM NETWORK ACTIVE          "
     echo -e "${GREEN}==========================================================${NC}"
-    echo -e "${WHITE}👤 Username : ${CYAN}${USER_NAME:-ubuntu}${NC}"
-    echo -e "${WHITE}🔑 Password : ${CYAN}${USER_PASS:-1234}${NC}"
-    echo -e "${WHITE}⚙️  Resources: ${CYAN}${RAM_VALUE} RAM | ${CPU_CORES:-4} Cores${NC}"
-    echo -e "${WHITE}🚀 Port Rule : ${YELLOW}Host Port ${TCP_HOST_PORT} -> VM Port ${TCP_GUEST_PORT}${NC}"
+    echo -e "${WHITE}👤 Username   : ${CYAN}root${NC}"
+    echo -e "${WHITE}🔑 Password   : ${CYAN}${USER_PASS:-1234}${NC}"
+    echo -e "${WHITE}⚙️  Resources  : ${CYAN}${RAM_VALUE} RAM | ${CPU_CORES:-4} Cores${NC}"
+    echo -e "${WHITE}🆔 NAT ID     : ${CYAN}${RANDOM_ID}${NC}"
+    echo -e "${WHITE}🚀 Port Rule  : ${YELLOW}Host Port ${TCP_HOST_PORT} -> VM Port ${TCP_GUEST_PORT}${NC}"
     echo -e "${RED}----------------------------------------------------------${NC}"
-    if [ ! -z "$SSHX_URL" ]; then
-        echo -e "${YELLOW}🔥 POPOUT LIVE ACCESS WEB LINK (Copy & Paste in Browser):${NC}"
-        echo -e "${GREEN}👉 $SSHX_URL 👈${NC}"
+    
+    if [ ! -z "$TMATE_SSH" ]; then
+        echo -e "${GREEN}✅ SSH BERHASIL REGENERASI !${NC}"
+        echo ""
+        echo -e "${WHITE}🔑 New SSH :${NC}"
+        echo -e "${CYAN}$TMATE_SSH${NC}"
+        echo ""
+        echo -e "${YELLOW}⚠️ Old session sudah expired !${NC}"
     else
-        echo -e "${RED}⚠️ Tunnel proxy loading slow. Direct local network port is listening.${NC}"
+        echo -e "${RED}⚠️ Gagal mendapatkan tunnel public tmate. Menggunakan fallback lokal.${NC}"
+        echo -e "${WHITE}👉 Connection Command : ssh root@localhost -p ${TCP_HOST_PORT}${NC}"
     fi
-    echo -e "${RED}----------------------------------------------------------${NC}"
-    echo -e "${WHITE}👉 Connection Command : ssh ${USER_NAME:-ubuntu}@localhost -p ${TCP_HOST_PORT}${NC}"
     echo -e "${GREEN}==========================================================${NC}"
     echo ""
     
     qemu-system-x86_64 \
-        -hda /home/daytona/ubuntu22.qcow2 \
+        -hda /home/nat/$OS_IMG \
         -m $RAM_VALUE \
         -smp ${CPU_CORES:-4} \
         -drive file=seed.img,format=raw \
@@ -246,7 +276,10 @@ boot_qemu() {
 }
 
 restart_vps() {
-    if [ -f "/home/daytona/ubuntu22.qcow2" ] && [ -f "seed.img" ]; then
+    if [ -f ".vps_env" ]; then
+        source .vps_env
+    fi
+    if [ -f "/home/nat/$OS_IMG" ] && [ -f "seed.img" ]; then
         echo -e "${GREEN}🔄 Restarting existing server architecture...${NC}"
         sleep 1
         boot_qemu
@@ -259,9 +292,12 @@ restart_vps() {
 
 clean_vps() {
     echo -e "${RED}⚠️ Purging system storage components and configurations...${NC}"
-    $SUDO_CMD rm -rf user-data seed.img /home/daytona/ubuntu22.qcow2 .vps_env
-    pkill sshx > /dev/null 2>&1
-    pkill sh > /dev/null 2>&1
+    if [ -f ".vps_env" ]; then
+        source .vps_env
+    fi
+    $SUDO_CMD rm -rf user-data seed.img /home/nat/${OS_IMG:-*.qcow2} .vps_env
+    pkill -f tmate > /dev/null 2>&1
+    rm -f /tmp/tmate.sock > /dev/null 2>&1
     sleep 1
     echo -e "${GREEN}✅ Workspace successfully wiped fresh!${NC}"
     sleep 2
