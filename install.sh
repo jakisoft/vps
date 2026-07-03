@@ -41,7 +41,8 @@ else
     SUDO_CMD="sudo"
 fi
 
-$SUDO_CMD mkdir -p /home/nat/cache > /dev/null 2>&1
+mkdir -p /home/nat/master
+mkdir -p /home/nat/instances
 
 show_menu() {
     clear
@@ -53,7 +54,7 @@ show_menu() {
     echo ""
     echo -e "  ${CYAN}[1]${NC} Create & Boot New NAT VPS Instance"
     echo -e "  ${CYAN}[2]${NC} List VM NAT Active Instance"
-    echo -e "  ${CYAN}[3]${NC} Configuration & VM Management Panel"
+    echo -e "  ${CYAN}[3]${NC} Configuration & VM Management Panel (Index Select)"
     echo -e "  ${CYAN}[4]${NC} Exit Dashboard"
     echo ""
     echo -e "${RED}==========================================================${NC}"
@@ -72,7 +73,7 @@ show_menu() {
 create_vps() {
     clear
     echo -e "${RED}==========================================================${NC}"
-    echo -e "${WHITE}⚙️  CREATE NEW VIRTUAL MACHINE NAT${NC}"
+    echo -e "${WHITE}⚙️  CREATE NEW MULTI-TENANT VIRTUAL MACHINE NAT${NC}"
     echo -e "${RED}==========================================================${NC}"
     echo ""
     
@@ -103,253 +104,107 @@ create_vps() {
     esac
 
     echo ""
-    echo -ne "${BLUE}🔹 Enter RAM Size in GB (e.g., 4, 8, 16): ${NC}"
+    echo -ne "${BLUE}🔹 Enter RAM Size in GB (e.g., 4, 8, 16, 32): ${NC}"
     read RAM_GB
-    RAM_GB=${RAM_GB:-4}
     echo -ne "${BLUE}🔹 Enter CPU Cores (e.g., 2, 4, 8): ${NC}"
     read CPU_CORES
-    CPU_CORES=${CPU_CORES:-2}
     echo -ne "${BLUE}🔹 Enter Disk Space to ADD in GB (e.g., 10, 20): ${NC}"
     read DISK_ADD
-    DISK_ADD=${DISK_ADD:-10}
-    echo -ne "${BLUE}🔹 Enter Custom External Host Port (e.g., 2222, 5000): ${NC}"
-    read TCP_HOST_PORT
-    TCP_HOST_PORT=${TCP_HOST_PORT:-2222}
     
-    USER_PASS="1234"
-    TCP_GUEST_PORT=22
+    while true; do
+        echo -ne "${BLUE}🔹 Enter Custom External Host Port (e.g., 2222, 5000): ${NC}"
+        read TCP_HOST_PORT
+        TCP_HOST_PORT=${TCP_HOST_PORT:-2222}
+        
+        if lsof -Pi :$TCP_HOST_PORT -sTCP:LISTEN -t >/dev/null 2>&1 || [ -f "/home/nat/instances/*/.vps_env" ] && grep -q "TCP_HOST_PORT=$TCP_HOST_PORT" /home/nat/instances/*/.vps_env 2>/dev/null; then
+            echo -e "${RED}❌ Port $TCP_HOST_PORT sudah digunakan oleh system atau VM lain! Silakan pilih port lain.${NC}"
+        else
+            break
+        fi
+    done
+
     RANDOM_ID=$(tr -dc 'a-z0-9' < /dev/urandom | head -c 10)
-    VM_DIR="/home/nat/$RANDOM_ID"
+    INSTANCE_DIR="/home/nat/instances/$RANDOM_ID"
+    $SUDO_CMD mkdir -p "$INSTANCE_DIR"
 
     echo ""
-    echo -e "${YELLOW}⏳ Injecting Core High-Speed Network Drivers... Please wait.${NC}"
+    echo -e "${YELLOW}⏳ Injecting Core High-Speed Network Drivers & Dependencies...${NC}"
     echo ""
     
     $SUDO_CMD apt-get update -y > /dev/null 2>&1
-    $SUDO_CMD apt-get install -y qemu-system-x86 qemu-utils wget cloud-image-utils curl tmate openssh-client > /dev/null 2>&1
+    $SUDO_CMD apt-get install -y qemu-system-x86 qemu-utils wget cloud-image-utils curl tmate openssh-client lsof > /dev/null 2>&1
     
-    $SUDO_CMD mkdir -p "$VM_DIR" > /dev/null 2>&1
-    
-    if [ ! -f "/home/nat/cache/$OS_IMG" ]; then
-        echo -e "${YELLOW}📥 Downloading Cloud Image to /home/nat/cache/...${NC}"
-        $SUDO_CMD wget -q --show-progress "$OS_URL" -O /home/nat/cache/$OS_IMG
-        $SUDO_CMD chmod 666 /home/nat/cache/$OS_IMG
+    if [ ! -f "/home/nat/master/$OS_IMG" ]; then
+        echo -e "${YELLOW}📥 Downloading Cloud Image Master to /home/nat/master/...${NC}"
+        $SUDO_CMD wget -q --show-progress "$OS_URL" -O /home/nat/master/$OS_IMG
+        $SUDO_CMD chmod 666 /home/nat/master/$OS_IMG
     fi
 
-    $SUDO_CMD cp "/home/nat/cache/$OS_IMG" "$VM_DIR/$OS_IMG"
-    $SUDO_CMD chmod 666 "$VM_DIR/$OS_IMG"
+    $SUDO_CMD cp /home/nat/master/$OS_IMG "$INSTANCE_DIR/$OS_IMG"
+    $SUDO_CMD chmod 666 "$INSTANCE_DIR/$OS_IMG"
     
-    loading_bar "Generating Cloud-Init Matrix"
-    
-    cat <<'EOF' > /tmp/user-data
+    loading_bar "Generating Cloud-Init Sandbox Matrix"
+    cat <<EOF > "$INSTANCE_DIR/user-data"
 #cloud-config
 ssh_pwauth: True
+preserve_hostname: false
+hostname: ${RANDOM_ID}
 chpasswd:
   list: |
     root:1234
   expire: False
-packages:
-  - curl
-  - wget
-  - tmux
-  - tmate
 write_files:
   - path: /etc/systemd/system/serial-getty@ttyS0.service.d/autologin.conf
     content: |
       [Service]
       ExecStart=
-      ExecStart=-/sbin/agetty --autologin root --keep-baud 115200,38400,9600 %I $TERM
-  - path: /root/start_tmate.sh
-    permissions: '0755'
-    content: |
-      #!/bin/bash
-      sleep 15
-      for i in {1..30}; do
-        tmate -S /tmp/tmate.sock new-session -d
-        tmate -S /tmp/tmate.sock wait tmate-ready
-        TMATE_SSH=$(tmate -S /tmp/tmate.sock display -p '#{tmate_ssh}')
-        if [ -n "$TMATE_SSH" ]; then
-          echo "$TMATE_SSH" > /dev/ttyS1
-          break
-        fi
-        sleep 5
-      done
+      ExecStart=-/sbin/agetty --autologin root --keep-baud 115200,38400,9600 %I \$TERM
+packages:
+  - curl
+  - wget
+  - tmux
 runcmd:
   - sed -i 's|#\?\s*\(PermitRootLogin\).*|\1 yes|g' /etc/ssh/sshd_config
   - sed -i 's|#\?\s*\(PasswordAuthentication\).*|\1 yes|g' /etc/ssh/sshd_config
   - echo "PermitRootLogin yes" >> /etc/ssh/sshd_config
   - echo "PasswordAuthentication yes" >> /etc/ssh/sshd_config
+  - echo "127.0.1.1 ${RANDOM_ID}" >> /etc/hosts
+  - hostnamectl set-hostname ${RANDOM_ID}
   - systemctl daemon-reload
   - systemctl restart sshd
   - systemctl restart serial-getty@ttyS0.service
-  - bash /root/start_tmate.sh &
 EOF
 
-    sed -i "s/ssh_pwauth: True/ssh_pwauth: True\nhostname: $RANDOM_ID\nmanage_etc_hosts: true/" /tmp/user-data
-
-    $SUDO_CMD cloud-localds "$VM_DIR/seed.img" /tmp/user-data > /dev/null 2>&1
-    rm -f /tmp/user-data
-
-    loading_bar "Expanding Server Hard Disk Allocation"
-    $SUDO_CMD qemu-img resize "$VM_DIR/$OS_IMG" +${DISK_ADD}G > /dev/null 2>&1
+    cd "$INSTANCE_DIR"
+    cloud-localds seed.img user-data > /dev/null 2>&1
+    loading_bar "Expanding Isolated Hard Disk Allocation"
+    $SUDO_CMD qemu-img resize "$INSTANCE_DIR/$OS_IMG" +${DISK_ADD}G > /dev/null 2>&1
     
-    save_env "$RANDOM_ID" "$RAM_GB" "$CPU_CORES" "$USER_PASS" "$TCP_HOST_PORT" "$TCP_GUEST_PORT" "$OS_IMG"
-    boot_qemu "$RANDOM_ID"
-}
-
-save_env() {
-    local target_id="$1"
-    local target_ram="$2"
-    local target_cpu="$3"
-    local target_pass="$4"
-    local target_hport="$5"
-    local target_gport="$6"
-    local target_img="$7"
-    
-    local target_dir="/home/nat/$target_id"
-    $SUDO_CMD mkdir -p "$target_dir"
-    
-    echo "RAM_GB=$target_ram" | $SUDO_CMD tee "$target_dir/vps.env" > /dev/null
-    echo "CPU_CORES=$target_cpu" | $SUDO_CMD tee -a "$target_dir/vps.env" > /dev/null
-    echo "USER_PASS=$target_pass" | $SUDO_CMD tee -a "$target_dir/vps.env" > /dev/null
-    echo "TCP_HOST_PORT=$target_hport" | $SUDO_CMD tee -a "$target_dir/vps.env" > /dev/null
-    echo "TCP_GUEST_PORT=$target_gport" | $SUDO_CMD tee -a "$target_dir/vps.env" > /dev/null
-    echo "OS_IMG=$target_img" | $SUDO_CMD tee -a "$target_dir/vps.env" > /dev/null
-    echo "RANDOM_ID=$target_id" | $SUDO_CMD tee -a "$target_dir/vps.env" > /dev/null
-}
-
-is_running() {
-    local target_id="$1"
-    if [ -f "/home/nat/$target_id/qemu.pid" ]; then
-        local pid=$(cat "/home/nat/$target_id/qemu.pid")
-        if kill -0 "$pid" 2>/dev/null; then
-            return 0
-        fi
-    fi
-    return 1
-}
-
-stop_vm() {
-    local target_id="$1"
-    if [ -f "/home/nat/$target_id/qemu.pid" ]; then
-        local pid=$(cat "/home/nat/$target_id/qemu.pid")
-        $SUDO_CMD kill "$pid" 2>/dev/null
-        sleep 2
-        if kill -0 "$pid" 2>/dev/null; then
-            $SUDO_CMD kill -9 "$pid" 2>/dev/null
-        fi
-        $SUDO_CMD rm -f "/home/nat/$target_id/qemu.pid"
-    fi
-}
-
-boot_qemu() {
-    local target_id="$1"
-    local target_dir="/home/nat/$target_id"
-    
-    if [ -f "$target_dir/vps.env" ]; then
-        source "$target_dir/vps.env"
-    fi
-
-    stop_vm "$target_id"
-    
-    $SUDO_CMD rm -f "$target_dir/tmate.txt"
-    $SUDO_CMD touch "$target_dir/tmate.txt"
-    $SUDO_CMD chmod 666 "$target_dir/tmate.txt"
-
-    clear
-    echo -e "${GREEN}==========================================================${NC}"
-    type_effect "👹 DATA SYSTEM SYNCHRONIZED! PIPING TERMINAL CHANNELS..." 0.02
-    echo -e "${GREEN}==========================================================${NC}"
-    echo ""
-
-    $SUDO_CMD qemu-system-x86_64 \
-        -hda "$target_dir/$OS_IMG" \
-        -m "${RAM_GB}G" \
-        -smp "${CPU_CORES}" \
-        -drive file="$target_dir/seed.img,format=raw" \
-        -nographic \
-        -netdev user,id=net0,net=10.0.2.0/24,dns=1.1.1.1,hostfwd=tcp::${TCP_HOST_PORT}-:${TCP_GUEST_PORT} \
-        -device e1000,netdev=net0 \
-        -serial null \
-        -serial file:"$target_dir/tmate.txt" \
-        -daemonize \
-        -pidfile "$target_dir/qemu.pid"
-
-    local tmate_ssh=""
-    for ((i=0; i<60; i++)); do
-        if [ -s "$target_dir/tmate.txt" ]; then
-            tmate_ssh=$(cat "$target_dir/tmate.txt" | tr -d '\r' | tr -d '\n')
-            if [[ "$tmate_ssh" == *"ssh "* ]]; then
-                break
-            fi
-        fi
-        echo -ne "\r⌛ Menunggu koneksi tmate SSH di generate di dalam VM... ($((60-i))s) "
-        sleep 2
-    done
-    echo ""
-
-    clear
-    echo -e "${GREEN}==========================================================${NC}"
-    echo -e "🎉             JKSOFT - VM NETWORK ACTIVE                 "
-    echo -e "${GREEN}==========================================================${NC}"
-    echo -e "${WHITE}👤 Username   : ${CYAN}root${NC}"
-    echo -e "${WHITE}🔑 Password   : ${CYAN}${USER_PASS:-1234}${NC}"
-    echo -e "${WHITE}⚙️ Resources  : ${CYAN}${RAM_GB}G RAM | ${CPU_CORES} Cores${NC}"
-    echo -e "${WHITE}🆔 Hostname/ID : ${CYAN}${target_id}${NC}"
-    echo -e "${WHITE}🚀 Port Forward: ${YELLOW}Host Port ${TCP_HOST_PORT} -> VM Port ${TCP_GUEST_PORT}${NC}"
-    echo -e "${RED}----------------------------------------------------------${NC}"
-    
-    if [ -n "$tmate_ssh" ]; then
-        echo -e "${GREEN}✅ SSH BERHASIL DIGENERATE DI DALAM VM!${NC}"
-        echo ""
-        echo -e "${WHITE}🔑 Tmate SSH :${NC}"
-        echo -e "${CYAN}$tmate_ssh${NC}"
-        echo ""
-    else
-        echo -e "${RED}⚠️ Gagal mendapatkan tunnel tmate dari dalam VM.${NC}"
-        echo -e "${WHITE}👉 Connection Fallback : ssh root@localhost -p ${TCP_HOST_PORT}${NC}"
-    fi
-    echo -e "${GREEN}==========================================================${NC}"
-    echo ""
-    echo -ne "${WHITE}Tekan [Enter] untuk kembali ke menu utama...${NC}"
-    read
-    show_menu
+    TCP_GUEST_PORT=22
+    save_env "$INSTANCE_DIR"
+    boot_qemu "$INSTANCE_DIR"
 }
 
 list_vm() {
     clear
     echo -e "${GREEN}==========================================================${NC}"
-    echo -e "📋            JKSOFT - ACTIVE NAT VM LIST                 "
+    echo -e "📋              JKSOFT - ACTIVE NAT VM LIST               "
     echo -e "${GREEN}==========================================================${NC}"
     echo ""
     
-    local found=0
-    for d in /home/nat/*; do
-        if [ -d "$d" ] && [ -f "$d/vps.env" ]; then
-            found=1
-            local vm_id=$(basename "$d")
-            source "$d/vps.env"
-            
-            local status="${RED}STOPPED${NC}"
-            if is_running "$vm_id"; then
-                status="${GREEN}RUNNING${NC}"
-            fi
-            
-            echo -e "🆔 VM Host ID : ${CYAN}${vm_id}${NC} [$status]"
-            echo -e "💿 OS Image   : ${CYAN}${OS_IMG}${NC}"
-            echo -e "⚙️  Resources  : ${CYAN}${RAM_GB}G RAM | ${CPU_CORES} Cores${NC}"
-            echo -e "🚀 Port Rule  : ${YELLOW}Host Port ${TCP_HOST_PORT} -> VM Port ${TCP_GUEST_PORT}${NC}"
-            if [ -s "$d/tmate.txt" ]; then
-                local link=$(cat "$d/tmate.txt" | tr -d '\r' | tr -d '\n')
-                echo -e "🔑 Tmate SSH  : ${GREEN}${link}${NC}"
-            fi
-            echo -e "${RED}----------------------------------------------------------${NC}"
+    local count=0
+    for dir in /home/nat/instances/*; do
+        if [ -d "$dir" ] && [ -f "$dir/.vps_env" ]; then
+            source "$dir/.vps_env"
+            count=$((count+1))
+            echo -e "${CYAN}[$count]${NC} NAT ID: ${WHITE}${RANDOM_ID}${NC} | OS: ${WHITE}${OS_IMG}${NC} | Port: ${YELLOW}${TCP_HOST_PORT}${NC} | Specs: ${WHITE}${RAM_GB}G RAM, ${CPU_CORES} Cores${NC}"
         fi
     done
 
-    if [ $found -eq 0 ]; then
+    if [ $count -eq 0 ]; then
         echo -e "${RED}❌ No active VM instances detected.${NC}"
     fi
+    
     echo ""
     echo -e "${GREEN}==========================================================${NC}"
     echo -ne "${WHITE}Press [Enter] to return to menu...${NC}"
@@ -360,172 +215,183 @@ list_vm() {
 config_panel() {
     clear
     echo -e "${YELLOW}==========================================================${NC}"
-    echo -e "${WHITE}⚙️🛠️  JKSOFT CONFIGURATION & MANAGEMENT PANEL${NC}"
+    echo -e "${WHITE}⚙️🛠️  JKSOFT MULTI-INSTANCE CONFIGURATION PANEL${NC}"
     echo -e "${YELLOW}==========================================================${NC}"
     echo ""
     
-    local vms=()
-    local count=1
-    for d in /home/nat/*; do
-        if [ -d "$d" ] && [ -f "$d/vps.env" ]; then
-            vms+=($(basename "$d"))
-            local status="${RED}STOPPED${NC}"
-            if is_running "$(basename "$d")"; then
-                status="${GREEN}RUNNING${NC}"
-            fi
-            echo -e "  ${CYAN}[$count]${NC} VM ID: $(basename "$d") [$status]"
+    local count=0
+    local dirs=()
+    for dir in /home/nat/instances/*; do
+        if [ -d "$dir" ] && [ -f "$dir/.vps_env" ]; then
             count=$((count+1))
+            dirs+=("$dir")
+            source "$dir/.vps_env"
+            echo -e "  ${CYAN}[$count]${NC} ID: ${WHITE}${RANDOM_ID}${NC} (Port: ${YELLOW}${TCP_HOST_PORT}${NC} | ${RAM_GB}G RAM)"
         fi
     done
 
-    if [ ${#vms[@]} -eq 0 ]; then
-        echo -e "${RED}❌ No VMs available to manage.${NC}"
-        echo ""
-        echo -ne "${WHITE}Press [Enter] to return to menu...${NC}"
-        read
+    if [ $count -eq 0 ]; then
+        echo -e "${RED}❌ No existing VM instances available to manage.${NC}"
+        sleep 2
         show_menu
         return
     fi
 
-    echo -e "  ${CYAN}[$count]${NC} Back to Main Menu"
     echo ""
-    echo -e "${YELLOW}==========================================================${NC}"
-    echo -ne "${WHITE}🔹 Choose VM Index [1-$count]: ${NC}"
+    echo -ne "${WHITE}🔹 Select VM Index [1-$count] to manage (or 0 to cancel): ${NC}"
     read INDEX_CHOICE
 
-    if [ "$INDEX_CHOICE" -eq "$count" ]; then
+    if [ "$INDEX_CHOICE" -eq 0 ] || [ "$INDEX_CHOICE" -gt "$count" ] 2>/dev/null; then
         show_menu
         return
     fi
 
-    if [ "$INDEX_CHOICE" -ge 1 ] && [ "$INDEX_CHOICE" -lt "$count" ]; then
-        local selected_id="${vms[$((INDEX_CHOICE-1))]}"
-        vm_sub_menu "$selected_id"
-    else
-        echo -e "${RED}❌ Invalid Choice!${NC}"
-        sleep 2
-        config_panel
-    fi
-}
-
-vm_sub_menu() {
-    local vm_id="$1"
-    local vm_dir="/home/nat/$vm_id"
+    TARGET_DIR="${dirs[$((INDEX_CHOICE-1))]}"
     
-    while true; do
-        if [ -f "$vm_dir/vps.env" ]; then
-            source "$vm_dir/vps.env"
-        fi
+    clear
+    source "$TARGET_DIR/.vps_env"
+    echo -e "${PURPLE}📍 Managing VM ID: $RANDOM_ID${NC}"
+    echo -e "----------------------------------------------------------"
+    echo -e "  ${CYAN}[1]${NC} Update Resources (RAM, CPU, Custom Port)"
+    echo -e "  ${CYAN}[2]${NC} Regenerate tmate Public SSH Session Only"
+    echo -e "  ${CYAN}[3]${NC} Delete & Wipe This Instance Completely"
+    echo -e "  ${CYAN}[4]${NC} Cancel"
+    echo -e "----------------------------------------------------------"
+    echo -ne "${WHITE}🔹 Enter Choice [1-4]: ${NC}"
+    read TARGET_ACTION
 
-        local status="${RED}STOPPED${NC}"
-        if is_running "$vm_id"; then
-            status="${GREEN}RUNNING${NC}"
-        fi
-
-        clear
-        echo -e "${YELLOW}==========================================================${NC}"
-        echo -e "${WHITE}🛠️  MANAGING VM: ${CYAN}$vm_id${NC} [$status]${NC}"
-        echo -e "${YELLOW}==========================================================${NC}"
-        echo ""
-        echo -e "Specs: RAM ${CYAN}${RAM_GB}G${NC} | CPU ${CYAN}${CPU_CORES} Cores${NC} | Port ${CYAN}${TCP_HOST_PORT}${NC}"
-        echo ""
-        echo -e "  ${CYAN}[1]${NC} Update VM Specs (RAM, CPU, Add Disk, Host Port)"
-        echo -e "  ${CYAN}[2]${NC} Regenerate tmate SSH Session (Reboots VM)"
-        echo -e "  ${CYAN}[3]${NC} Delete / Wipe VM Instance"
-        echo -e "  ${CYAN}[4]${NC} Back to VM Selection List"
-        echo ""
-        echo -e "${YELLOW}==========================================================${NC}"
-        echo -ne "${WHITE}🔹 Enter Choice [1-4]: ${NC}"
-        read SUB_CHOICE
-
-        case $SUB_CHOICE in
-            1)
-                update_vm_spec "$vm_id"
-                ;;
-            2)
-                regenerate_ssh "$vm_id"
-                ;;
-            3)
-                delete_vm "$vm_id"
-                return
-                ;;
-            4)
-                config_panel
-                return
-                ;;
-            *)
-                echo -e "${RED}❌ Invalid Choice!${NC}"
-                sleep 1
-                ;;
-        esac
-    done
+    case $TARGET_ACTION in
+        1) update_vm_spec "$TARGET_DIR" ;;
+        2) regenerate_ssh "$TARGET_DIR" ;;
+        3) delete_vm "$TARGET_DIR" ;;
+        *) config_panel ;;
+    esac
 }
 
 update_vm_spec() {
-    local vm_id="$1"
-    local vm_dir="/home/nat/$vm_id"
-    
-    source "$vm_dir/vps.env"
-    
+    local dir="$1"
     clear
-    echo -e "${YELLOW}==========================================================${NC}"
-    echo -e "${WHITE}⚙️  UPDATE VM RESOURCES CONFIGURATION: $vm_id${NC}"
-    echo -e "${YELLOW}==========================================================${NC}"
+    source "$dir/.vps_env"
+    echo -e "${YELLOW}⚙️  UPDATE SPECIFICATION FOR VM: $RANDOM_ID${NC}"
     echo ""
     
-    echo -ne "${BLUE}🔹 Enter NEW RAM Size in GB (Leave empty to keep $RAM_GB): ${NC}"
+    echo -ne "${BLUE}🔹 Enter NEW RAM Size in GB (Leave empty to keep ${RAM_GB}G): ${NC}"
     read NEW_RAM
     RAM_GB=${NEW_RAM:-$RAM_GB}
     
-    echo -ne "${BLUE}🔹 Enter NEW CPU Cores (Leave empty to keep $CPU_CORES): ${NC}"
+    echo -ne "${BLUE}🔹 Enter NEW CPU Cores (Leave empty to keep ${CPU_CORES}): ${NC}"
     read NEW_CPU
     CPU_CORES=${NEW_CPU:-$CPU_CORES}
     
-    echo -ne "${BLUE}🔹 Enter NEW Disk Space to ADD in GB (Leave empty/0 to skip): ${NC}"
-    read NEW_DISK
-    NEW_DISK=${NEW_DISK:-0}
+    while true; do
+        echo -ne "${BLUE}🔹 Enter NEW Custom External Host Port (Leave empty to keep ${TCP_HOST_PORT}): ${NC}"
+        read NEW_PORT
+        NEW_PORT=${NEW_PORT:-$TCP_HOST_PORT}
+        
+        if [ "$NEW_PORT" != "$TCP_HOST_PORT" ] && ( lsof -Pi :$NEW_PORT -sTCP:LISTEN -t >/dev/null 2>&1 || [ -f "/home/nat/instances/*/.vps_env" ] && grep -q "TCP_HOST_PORT=$NEW_PORT" /home/nat/instances/*/.vps_env 2>/dev/null ); then
+            echo -e "${RED}❌ Port $NEW_PORT bentrok dengan sistem atau VM aktif lainnya!${NC}"
+        else
+            TCP_HOST_PORT=$NEW_PORT
+            break
+        fi
+    done
     
-    echo -ne "${BLUE}🔹 Enter NEW Custom External Host Port (Leave empty to keep $TCP_HOST_PORT): ${NC}"
-    read NEW_PORT
-    TCP_HOST_PORT=${NEW_PORT:-$TCP_HOST_PORT}
-    
-    stop_vm "$vm_id"
-    
-    if [ "$NEW_DISK" -gt 0 ]; then
-        loading_bar "Expanding Server Hard Disk Allocation"
-        $SUDO_CMD qemu-img resize "$vm_dir/$OS_IMG" +${NEW_DISK}G > /dev/null 2>&1
-    fi
-    
-    save_env "$vm_id" "$RAM_GB" "$CPU_CORES" "$USER_PASS" "$TCP_HOST_PORT" "$TCP_GUEST_PORT" "$OS_IMG"
-    
-    echo -e "${GREEN}✅ Resources successfully updated! Booting machine...${NC}"
-    sleep 2
-    boot_qemu "$vm_id"
+    save_env "$dir"
+    echo -e "${GREEN}✅ Data updated! Rebooting container...${NC}"
+    sleep 1
+    boot_qemu "$dir"
 }
 
 regenerate_ssh() {
-    local vm_id="$1"
-    echo -e "${YELLOW}🔄 Regenerating tmate session tunnels by restarting VM...${NC}"
-    sleep 1
-    boot_qemu "$vm_id"
+    local dir="$1"
+    echo -e "${YELLOW}🔄 Regenerating isolated tmate session...${NC}"
+    boot_qemu "$dir"
 }
 
 delete_vm() {
-    local vm_id="$1"
-    local vm_dir="/home/nat/$vm_id"
+    local dir="$1"
+    source "$dir/.vps_env"
+    echo -e "${RED}⚠️ Purging instance block $RANDOM_ID data permanently...${NC}"
     
+    pkill -f "tmate -S /tmp/tmate_$RANDOM_ID.sock" > /dev/null 2>&1
+    pkill -f "qemu-system-x86_64.*$RANDOM_ID" > /dev/null 2>&1
+    rm -f /tmp/tmate_$RANDOM_ID.sock > /dev/null 2>&1
+    
+    $SUDO_CMD rm -rf "$dir"
+    sleep 1
+    echo -e "${GREEN}✅ Instance successfully wiped fresh!${NC}"
+    sleep 2
+    show_menu
+}
+
+save_env() {
+    local dir="$1"
+    echo "RAM_GB=${RAM_GB:-32}" > "$dir/.vps_env"
+    echo "CPU_CORES=${CPU_CORES:-4}" >> "$dir/.vps_env"
+    echo "TCP_HOST_PORT=${TCP_HOST_PORT:-2222}" >> "$dir/.vps_env"
+    echo "TCP_GUEST_PORT=${TCP_GUEST_PORT:-22}" >> "$dir/.vps_env"
+    echo "OS_IMG=${OS_IMG}" >> "$dir/.vps_env"
+    echo "RANDOM_ID=${RANDOM_ID}" >> "$dir/.vps_env"
+}
+
+boot_qemu() {
+    local dir="$1"
+    source "$dir/.vps_env"
+
+    RAM_VALUE="${RAM_GB:-32}G"
+
     clear
-    echo -e "${RED}⚠️  WARNING: You are about to permanently delete VM $vm_id !${NC}"
-    echo -ne "${WHITE}Are you sure? (y/n): ${NC}"
-    read CONFIRM
+    echo -e "${GREEN}==========================================================${NC}"
+    type_effect "👹 DATA SYSTEM SYNCHRONIZED! ISOLATING VM CHANNELS..." 0.02
+    echo -e "${GREEN}==========================================================${NC}"
+    echo ""
     
-    if [ "$CONFIRM" = "y" ] || [ "$CONFIRM" = "Y" ]; then
-        stop_vm "$vm_id"
-        $SUDO_CMD rm -rf "$vm_dir"
-        echo -e "${GREEN}✅ VM $vm_id successfully wiped!${NC}"
-        sleep 2
-        config_panel
+    pkill -f "tmate -S /tmp/tmate_$RANDOM_ID.sock" > /dev/null 2>&1
+    pkill -f "qemu-system-x86_64.*$RANDOM_ID" > /dev/null 2>&1
+    rm -f /tmp/tmate_$RANDOM_ID.sock > /dev/null 2>&1
+    
+    tmate -S /tmp/tmate_$RANDOM_ID.sock new-session -d > /dev/null 2>&1
+    tmate -S /tmp/tmate_$RANDOM_ID.sock wait tmate-ready > /dev/null 2>&1
+    
+    sleep 3
+    TMATE_SSH=$(tmate -S /tmp/tmate_$RANDOM_ID.sock display -p '#{tmate_ssh}')
+
+    clear
+    echo -e "${GREEN}==========================================================${NC}"
+    echo -e "🎉              JKSOFT - VM NETWORK ACTIVE          "
+    echo -e "${GREEN}==========================================================${NC}"
+    echo -e "${WHITE}👤 Hostname    : ${CYAN}root@${RANDOM_ID}${NC}"
+    echo -e "${WHITE}⚙️  Resources  : ${CYAN}${RAM_VALUE} RAM | ${CPU_CORES:-4} Cores${NC}"
+    echo -e "${WHITE}🆔 NAT ID      : ${CYAN}${RANDOM_ID}${NC}"
+    echo -e "${WHITE}🚀 Port Rule  : ${YELLOW}Host Port ${TCP_HOST_PORT} -> VM Port ${TCP_GUEST_PORT}${NC}"
+    echo -e "${WHITE}📁 Path Root  : ${CYAN}${dir}${NC}"
+    echo -e "${RED}----------------------------------------------------------${NC}"
+    
+    if [ ! -z "$TMATE_SSH" ]; then
+        echo -e "${GREEN}✅ SSH BERHASIL REGENERASI !${NC}"
+        echo ""
+        echo -e "${WHITE}🔑 New SSH (No Password Needed) :${NC}"
+        echo -e "${CYAN}$TMATE_SSH${NC}"
+        echo ""
+        echo -e "${YELLOW}⚠️ Old session sudah expired !${NC}"
+    else
+        echo -e "${RED}⚠️ Tunnel proxy tmate error. Gunakan port lokal fallback jika memungkinkan.${NC}"
+        echo -e "${WHITE}👉 Connection Command : ssh root@localhost -p ${TCP_HOST_PORT}${NC}"
     fi
+    echo -e "${GREEN}==========================================================${NC}"
+    echo ""
+    
+    cd "$dir"
+    
+    qemu-system-x86_64 \
+        -name "$RANDOM_ID" \
+        -hda "$dir/$OS_IMG" \
+        -m $RAM_VALUE \
+        -smp ${CPU_CORES:-4} \
+        -drive file=seed.img,format=raw \
+        -nographic \
+        -netdev user,id=net_`echo $RANDOM_ID`,net=10.0.2.0/24,dns=1.1.1.1,hostfwd=tcp::${TCP_HOST_PORT}-:${TCP_GUEST_PORT} \
+        -device e1000,netdev=net_`echo $RANDOM_ID`
 }
 
 show_menu
