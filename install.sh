@@ -132,7 +132,7 @@ create_vps() {
     echo ""
     
     $SUDO_CMD apt-get update -y > /dev/null 2>&1
-    $SUDO_CMD apt-get install -y qemu-system-x86 qemu-utils wget cloud-image-utils curl tmate openssh-client lsof > /dev/null 2>&1
+    $SUDO_CMD apt-get install -y qemu-system-x86 qemu-utils wget cloud-image-utils curl tmate openssh-client lsof sshpass > /dev/null 2>&1
     
     if [ ! -f "/home/nat/master/$OS_IMG" ]; then
         echo -e "${YELLOW}📥 Downloading Cloud Image Master to /home/nat/master/...${NC}"
@@ -153,16 +153,28 @@ chpasswd:
   list: |
     root:1234
   expire: False
-write_files:
-  - path: /etc/systemd/system/serial-getty@ttyS0.service.d/autologin.conf
-    content: |
-      [Service]
-      ExecStart=
-      ExecStart=-/sbin/agetty --autologin root --keep-baud 115200,38400,9600 %I \$TERM
 packages:
   - curl
   - wget
   - tmux
+  - tmate
+write_files:
+  - path: /etc/systemd/system/tmate-vps.service
+    content: |
+      [Unit]
+      Description=JKSOFT Tmate Tunnel Service inside VM
+      After=network.target network-online.target
+      Wants=network-online.target
+      
+      [Service]
+      Type=simple
+      ExecStartPre=/bin/sleep 5
+      ExecStart=/usr/bin/tmate -S /tmp/tmate_internal.sock new-session -F
+      Restart=always
+      RestartSec=5
+      
+      [Install]
+      WantedBy=multi-user.target
 runcmd:
   - sed -i 's|#\?\s*\(PermitRootLogin\).*|\1 yes|g' /etc/ssh/sshd_config
   - sed -i 's|#\?\s*\(PasswordAuthentication\).*|\1 yes|g' /etc/ssh/sshd_config
@@ -172,7 +184,8 @@ runcmd:
   - hostnamectl set-hostname ${RANDOM_ID}
   - systemctl daemon-reload
   - systemctl restart sshd
-  - systemctl restart serial-getty@ttyS0.service
+  - systemctl enable tmate-vps.service
+  - systemctl start tmate-vps.service
 EOF
 
     cd "$INSTANCE_DIR"
@@ -182,7 +195,26 @@ EOF
     
     TCP_GUEST_PORT=22
     save_env "$INSTANCE_DIR"
-    boot_qemu "$INSTANCE_DIR"
+    
+    clear
+    echo -e "${GREEN}==========================================================${NC}"
+    type_effect "👹 DATA SYSTEM SYNCHRONIZED! ISOLATING VM CHANNELS..." 0.02
+    echo -e "${GREEN}==========================================================${NC}"
+    echo ""
+    
+    pkill -f "qemu-system-x86_64.*$RANDOM_ID" > /dev/null 2>&1
+    
+    qemu-system-x86_64 \
+        -name "$RANDOM_ID" \
+        -hda "$INSTANCE_DIR/$OS_IMG" \
+        -m "${RAM_GB}G" \
+        -smp ${CPU_CORES:-4} \
+        -drive file=seed.img,format=raw \
+        -nographic \
+        -netdev user,id=net_$RANDOM_ID,net=10.0.2.0/24,dns=1.1.1.1,hostfwd=tcp::${TCP_HOST_PORT}-:${TCP_GUEST_PORT} \
+        -device e1000,netdev=net_$RANDOM_ID > /dev/null 2>&1 &
+        
+    print_vm_details "$INSTANCE_DIR" "CREATING"
 }
 
 list_vm() {
@@ -241,7 +273,7 @@ config_panel() {
     echo -ne "${WHITE}🔹 Select VM Index [1-$count] to manage (or 0 to cancel): ${NC}"
     read INDEX_CHOICE
 
-    if [ "$INDEX_CHOICE" -eq 0 ] || [ "$INDEX_CHOICE" -gt "$count" ] 2>/dev/null; then
+    if [ "$INDEX_CHOICE" -eq 0 ] || [ "$INDEX_CHOICE" -gt "$count" ] 2>/dev/null || [ -z "$INDEX_CHOICE" ]; then
         show_menu
         return
     fi
@@ -297,15 +329,35 @@ update_vm_spec() {
     done
     
     save_env "$dir"
-    echo -e "${GREEN}✅ Data updated! Rebooting container...${NC}"
+    
+    pkill -f "qemu-system-x86_64.*$RANDOM_ID" > /dev/null 2>&1
     sleep 1
-    boot_qemu "$dir"
+    
+    echo -e "${GREEN}幕 Data updated! Rebooting container...${NC}"
+    
+    qemu-system-x86_64 \
+        -name "$RANDOM_ID" \
+        -hda "$dir/$OS_IMG" \
+        -m "${RAM_GB}G" \
+        -smp ${CPU_CORES:-4} \
+        -drive file=seed.img,format=raw \
+        -nographic \
+        -netdev user,id=net_$RANDOM_ID,net=10.0.2.0/24,dns=1.1.1.1,hostfwd=tcp::${TCP_HOST_PORT}-:${TCP_GUEST_PORT} \
+        -device e1000,netdev=net_$RANDOM_ID & > /dev/null 2>&1
+        
+    print_vm_details "$dir" "UPDATING"
 }
 
 regenerate_ssh() {
     local dir="$1"
-    echo -e "${YELLOW}🔄 Regenerating isolated tmate session...${NC}"
-    boot_qemu "$dir"
+    clear
+    source "$dir/.vps_env"
+    echo -e "${YELLOW}🔄 Regenerating isolated tmate session inside VM... (Tanpa restart QEMU)${NC}"
+    echo ""
+    
+    sshpass -p "1234" ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -p $TCP_HOST_PORT root@127.0.0.1 "systemctl restart tmate-vps" > /dev/null 2>&1
+    
+    print_vm_details "$dir" "REGENERATING"
 }
 
 delete_vm() {
@@ -313,9 +365,7 @@ delete_vm() {
     source "$dir/.vps_env"
     echo -e "${RED}⚠️ Purging instance block $RANDOM_ID data permanently...${NC}"
     
-    pkill -f "tmate -S /tmp/tmate_$RANDOM_ID.sock" > /dev/null 2>&1
     pkill -f "qemu-system-x86_64.*$RANDOM_ID" > /dev/null 2>&1
-    rm -f /tmp/tmate_$RANDOM_ID.sock > /dev/null 2>&1
     
     $SUDO_CMD rm -rf "$dir"
     sleep 1
@@ -334,64 +384,51 @@ save_env() {
     echo "RANDOM_ID=${RANDOM_ID}" >> "$dir/.vps_env"
 }
 
-boot_qemu() {
+print_vm_details() {
     local dir="$1"
+    local mode="$2"
     source "$dir/.vps_env"
-
-    RAM_VALUE="${RAM_GB:-32}G"
-
-    clear
-    echo -e "${GREEN}==========================================================${NC}"
-    type_effect "👹 DATA SYSTEM SYNCHRONIZED! ISOLATING VM CHANNELS..." 0.02
-    echo -e "${GREEN}==========================================================${NC}"
+    
+    local TMATE_SSH=""
+    echo -e "${YELLOW}⏳ Menghubungkan jaringan terisolasi & mengambil Tmate SSH dari dalam VM...${NC}"
+    
+    for i in {1..30}; do
+        echo -ne "${YELLOW}\r⌛ Membaca data tunnel internal... ($i/30s)${NC}"
+        TMATE_SSH=$(sshpass -p "1234" ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -p $TCP_HOST_PORT root@127.0.0.1 "tmate -S /tmp/tmate_internal.sock display -p '#{tmate_ssh}'" 2>/dev/null)
+        if [[ "$TMATE_SSH" == *"ssh "* ]]; then
+            break
+        fi
+        sleep 2
+    done
     echo ""
-    
-    pkill -f "tmate -S /tmp/tmate_$RANDOM_ID.sock" > /dev/null 2>&1
-    pkill -f "qemu-system-x86_64.*$RANDOM_ID" > /dev/null 2>&1
-    rm -f /tmp/tmate_$RANDOM_ID.sock > /dev/null 2>&1
-    
-    tmate -S /tmp/tmate_$RANDOM_ID.sock new-session -d > /dev/null 2>&1
-    tmate -S /tmp/tmate_$RANDOM_ID.sock wait tmate-ready > /dev/null 2>&1
-    
-    sleep 3
-    TMATE_SSH=$(tmate -S /tmp/tmate_$RANDOM_ID.sock display -p '#{tmate_ssh}')
 
     clear
     echo -e "${GREEN}==========================================================${NC}"
     echo -e "🎉              JKSOFT - VM NETWORK ACTIVE          "
     echo -e "${GREEN}==========================================================${NC}"
     echo -e "${WHITE}👤 Hostname    : ${CYAN}root@${RANDOM_ID}${NC}"
-    echo -e "${WHITE}⚙️  Resources  : ${CYAN}${RAM_VALUE} RAM | ${CPU_CORES:-4} Cores${NC}"
+    echo -e "${WHITE}⚙️  Resources  : ${CYAN}${RAM_GB}G RAM | ${CPU_CORES:-4} Cores${NC}"
     echo -e "${WHITE}🆔 NAT ID      : ${CYAN}${RANDOM_ID}${NC}"
     echo -e "${WHITE}🚀 Port Rule  : ${YELLOW}Host Port ${TCP_HOST_PORT} -> VM Port ${TCP_GUEST_PORT}${NC}"
     echo -e "${WHITE}📁 Path Root  : ${CYAN}${dir}${NC}"
     echo -e "${RED}----------------------------------------------------------${NC}"
     
     if [ ! -z "$TMATE_SSH" ]; then
-        echo -e "${GREEN}✅ SSH BERHASIL REGENERASI !${NC}"
+        echo -e "${GREEN}✅ SSH BERHASIL REGENERASI DI DALAM VM NAT!${NC}"
         echo ""
-        echo -e "${WHITE}🔑 New SSH (No Password Needed) :${NC}"
+        echo -e "${WHITE}🔑 Tmate SSH (Akses Langsung ke Terisolasi root@$RANDOM_ID) :${NC}"
         echo -e "${CYAN}$TMATE_SSH${NC}"
         echo ""
-        echo -e "${YELLOW}⚠️ Old session sudah expired !${NC}"
     else
-        echo -e "${RED}⚠️ Tunnel proxy tmate error. Gunakan port lokal fallback jika memungkinkan.${NC}"
-        echo -e "${WHITE}👉 Connection Command : ssh root@localhost -p ${TCP_HOST_PORT}${NC}"
+        echo -e "${RED}⚠️ Sistem sedang inisialisasi awal. Jika SSH kosong, silakan gunakan menu nomor 3 -> [2] Regenerate SSH tanpa mematikan VM.${NC}"
+        echo -e "${WHITE}👉 Connection Fallback : ssh root@localhost -p ${TCP_HOST_PORT}${NC}"
     fi
     echo -e "${GREEN}==========================================================${NC}"
     echo ""
     
-    cd "$dir"
-    
-    qemu-system-x86_64 \
-        -name "$RANDOM_ID" \
-        -hda "$dir/$OS_IMG" \
-        -m $RAM_VALUE \
-        -smp ${CPU_CORES:-4} \
-        -drive file=seed.img,format=raw \
-        -nographic \
-        -netdev user,id=net_`echo $RANDOM_ID`,net=10.0.2.0/24,dns=1.1.1.1,hostfwd=tcp::${TCP_HOST_PORT}-:${TCP_GUEST_PORT} \
-        -device e1000,netdev=net_`echo $RANDOM_ID`
+    echo -ne "${WHITE}Tekan [Enter] untuk kembali ke menu utama...${NC}"
+    read
+    show_menu
 }
 
 show_menu
