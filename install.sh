@@ -315,9 +315,9 @@ delete_vm() {
     source "$dir/.vps_env"
     echo -e "${RED}⚠️ Purging instance block $RANDOM_ID data permanently...${NC}"
     
-    pkill -f "tmate -S /tmp/tmate_$RANDOM_ID.sock" > /dev/null 2>&1
+    pkill -f "/tmp/$RANDOM_ID" > /dev/null 2>&1
     pkill -f "qemu-system-x86_64.*$RANDOM_ID" > /dev/null 2>&1
-    rm -f /tmp/tmate_$RANDOM_ID.sock > /dev/null 2>&1
+    rm -f "/tmp/$RANDOM_ID" > /dev/null 2>&1
     
     $SUDO_CMD rm -rf "$dir"
     sleep 1
@@ -348,15 +348,15 @@ boot_qemu() {
     echo -e "${GREEN}==========================================================${NC}"
     echo ""
     
-    pkill -f "tmate -S /tmp/tmate_$RANDOM_ID.sock" > /dev/null 2>&1
+    pkill -f "/tmp/$RANDOM_ID" > /dev/null 2>&1
     pkill -f "qemu-system-x86_64.*$RANDOM_ID" > /dev/null 2>&1
-    rm -f /tmp/tmate_$RANDOM_ID.sock > /dev/null 2>&1
+    rm -f "/tmp/$RANDOM_ID" > /dev/null 2>&1
     
-    tmate -S /tmp/tmate_$RANDOM_ID.sock new-session -d > /dev/null 2>&1
-    tmate -S /tmp/tmate_$RANDOM_ID.sock wait tmate-ready > /dev/null 2>&1
+    tmate -S "/tmp/$RANDOM_ID" new-session -d > /dev/null 2>&1
+    tmate -S "/tmp/$RANDOM_ID" wait tmate-ready > /dev/null 2>&1
     
     sleep 3
-    TMATE_SSH=$(tmate -S /tmp/tmate_$RANDOM_ID.sock display -p '#{tmate_ssh}')
+    TMATE_SSH=$(tmate -S "/tmp/$RANDOM_ID" display -p '#{tmate_ssh}')
 
     cd "$dir"
     nohup qemu-system-x86_64 \
