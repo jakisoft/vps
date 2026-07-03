@@ -57,12 +57,6 @@ show_menu() {
     echo -e "${PURPLE}                    █████████   █████████                 ${NC}"
     echo -e "${RED}                   ███████████████████████                ${NC}"
     echo -e "${RED}==========================================================${NC}"
-    echo -e "${CYAN}  ____  _____ _   _ ____     ____    _    __  __ ___ _   _  ____ ${NC}"
-    echo -e "${CYAN} |  _ \| ____| | | |  _ \   / ___|  / \  |  \/  |_ _| \ | |/ ___|${NC}"
-    echo -e "${CYAN} | | | |  _| | | | | |_) | | |  _  / _ \ | |\/| || ||  \| | |  _ ${NC}"
-    echo -e "${CYAN} | |_| | |___| |_| |  __/  | |_| |/ ___ \| |  | || || |\  | |_| |${NC}"
-    echo -e "${CYAN} |____/|_____|\___/|_|      \____/_/   \_\_|  |_|___|_| \_|\____|${NC}"
-    echo -e "${RED}==========================================================${NC}"
     echo ""
     echo -e "${YELLOW}👉 SELECT AN OPTION TO PROCEED FROM LIST:${NC}"
     echo ""
@@ -108,7 +102,7 @@ create_vps() {
             OS_IMG="ubuntu24.qcow2"
             ;;
         3)
-            OS_URL="https://cloudimages.debian.org/images/cloud/bookworm/latest/debian-12-genericcloud-amd64.qcow2"
+            OS="https://cloudimages.debian.org/images/cloud/bookworm/latest/debian-12-genericcloud-amd64.qcow2"
             OS_IMG="debian12.qcow2"
             ;;
         *)
@@ -353,10 +347,17 @@ boot_qemu() {
     rm -f "/tmp/$RANDOM_ID" > /dev/null 2>&1
     
     tmate -S "/tmp/$RANDOM_ID" new-session -d > /dev/null 2>&1
-    tmate -S "/tmp/$RANDOM_ID" wait tmate-ready > /dev/null 2>&1
     
-    sleep 3
-    TMATE_SSH=$(tmate -S "/tmp/$RANDOM_ID" display -p '#{tmate_ssh}')
+    local timeout=0
+    TMATE_SSH=""
+    while [ $timeout -lt 10 ]; do
+        sleep 1
+        TMATE_SSH=$(tmate -S "/tmp/$RANDOM_ID" display -p '#{tmate_ssh}' 2>/dev/null)
+        if [ ! -z "$TMATE_SSH" ]; then
+            break
+        fi
+        timeout=$((timeout+1))
+    done
 
     cd "$dir"
     nohup qemu-system-x86_64 \
@@ -388,7 +389,7 @@ boot_qemu() {
         echo ""
         echo -e "${YELLOW}⚠️ Old session sudah expired !${NC}"
     else
-        echo -e "${RED}⚠️ Tunnel proxy tmate error. Gunakan port lokal fallback jika memungkinkan.${NC}"
+        echo -e "${RED}⚠️ Tunnel proxy tmate error / timeout dalam 10 detik. Gunakan fallback lokal.${NC}"
         echo -e "${WHITE}👉 Connection Command : ssh root@localhost -p ${TCP_HOST_PORT}${NC}"
     fi
     echo -e "${GREEN}==========================================================${NC}"
